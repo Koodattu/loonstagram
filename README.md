@@ -22,14 +22,15 @@ docker compose up --build
 
 ## Production Deploy
 
-Production is configured for `https://loonstagram.com`.
+Production is configured for `https://loonstagram.com`. `www.loonstagram.com` is accepted and redirected to the apex domain.
 
 1. Point the DNS A record for `loonstagram.com` to the VM.
+   If you want `www.loonstagram.com`, point its A record to the VM too, or add a CNAME from `www` to `loonstagram.com`.
 2. Open ports 80 and 443 on the VM firewall.
 3. Generate the certificate on the VM:
 
 ```sh
-sudo certbot certonly --standalone -d loonstagram.com
+sudo certbot certonly --standalone -d loonstagram.com -d www.loonstagram.com
 ```
 
 If another service is already listening on port 80, stop it while certbot runs. The production Compose file mounts `/etc/letsencrypt` read-only into Nginx.
