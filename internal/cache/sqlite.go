@@ -135,6 +135,18 @@ ON CONFLICT(shortcode, media_type) DO UPDATE SET
 	return nil
 }
 
+func (s *Store) Delete(ctx context.Context, ref instagram.Ref) (int64, error) {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM posts WHERE shortcode = ? AND media_type = ?`, ref.Shortcode, ref.Type)
+	if err != nil {
+		return 0, fmt.Errorf("delete cache: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, nil
+	}
+	return count, nil
+}
+
 func (s *Store) Cleanup(ctx context.Context, now time.Time) (int64, error) {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM posts WHERE expires_at < ?`, now.Unix())
 	if err != nil {

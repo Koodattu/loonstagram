@@ -136,6 +136,7 @@ func (h *Handlers) Routes() http.Handler {
 	mux.HandleFunc("GET /oauth/discord/callback", h.discordOAuthCallback)
 	mux.HandleFunc("GET /debug", h.debugFromQuery)
 	mux.HandleFunc("GET /debug/{type}/{shortcode}", h.debugCanonical)
+	mux.HandleFunc("POST /debug/{type}/{shortcode}/refresh", h.refreshDebugCache)
 	return RequestLogger(h.logger, mux)
 }
 
@@ -239,11 +240,17 @@ type debugPageData struct {
 	OriginalURL string
 	EmbedURL    string
 	Cache       debugCacheData
+	Action      debugActionData
 	Fresh       instagram.DebugReport
 	ParsedPost  *instagram.Post
 	Embed       embedData
 	Media       []debugMediaData
 	DumpJSON    string
+}
+
+type debugActionData struct {
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 type debugCacheData struct {
@@ -286,6 +293,10 @@ func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref insta
 		OriginalURL: ref.OriginalURL(),
 		EmbedURL:    ref.EmbedURL(),
 		Cache:       cacheData,
+		Action: debugActionData{
+			Message: strings.TrimSpace(r.URL.Query().Get("message")),
+			Error:   strings.TrimSpace(r.URL.Query().Get("error")),
+		},
 		Fresh:       fresh,
 		ParsedPost:  parsedPost,
 	}
@@ -299,6 +310,7 @@ func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref insta
 		OriginalURL string                `json:"originalUrl"`
 		EmbedURL    string                `json:"embedUrl"`
 		Cache       debugCacheData        `json:"cache"`
+		Action      debugActionData       `json:"action,omitempty"`
 		Fresh       instagram.DebugReport `json:"fresh"`
 		Embed       embedData             `json:"embedData"`
 		Media       []debugMediaData      `json:"media"`
@@ -308,6 +320,7 @@ func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref insta
 		OriginalURL: data.OriginalURL,
 		EmbedURL:    data.EmbedURL,
 		Cache:       data.Cache,
+		Action:      data.Action,
 		Fresh:       fresh,
 		Embed:       data.Embed,
 		Media:       data.Media,
@@ -323,6 +336,51 @@ func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref insta
 	if err := h.templates.ExecuteTemplate(w, "debug.html", data); err != nil {
 		h.logger.Error("render debug", "shortcode", ref.Shortcode, "media_type", ref.Type, "error", err)
 	}
+}
+
+func (h *Handlers) refreshDebugCache(w http.ResponseWriter, r *http.Request) {
+	ref, err := instagram.NewRef(r.PathValue("type"), r.PathValue("shortcode"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if _, err := h.store.Delete(r.Context(), ref); err != nil {
+		h.redirectDebug(w, r, ref, "", "Could not clear cache: "+sanitizeLogError(err))
+		return
+	}
+
+	post, err := h.getOrFetchPost(r.Context(), ref)
+	if err != nil {
+		h.redirectDebug(w, r, ref, "", "Could not refresh cache: "+sanitizeLogError(err))
+		return
+	}
+	if post == nil {
+		h.redirectDebug(w, r, ref, "", "Could not refresh cache: no post returned")
+		return
+	}
+	if post.Status != "ok" {
+		h.redirectDebug(w, r, ref, "Cache refreshed, but provider status is "+post.Status+".", "")
+		return
+	}
+
+	h.redirectDebug(w, r, ref, "Cache refreshed. Discord will see a new preview image URL on the next crawl.", "")
+}
+
+func (h *Handlers) redirectDebug(w http.ResponseWriter, r *http.Request, ref instagram.Ref, message, errText string) {
+	values := url.Values{}
+	if message != "" {
+		values.Set("message", message)
+	}
+	if errText != "" {
+		values.Set("error", errText)
+	}
+
+	target := fmt.Sprintf("/debug/%s/%s", ref.Type, ref.Shortcode)
+	if encoded := values.Encode(); encoded != "" {
+		target += "?" + encoded
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (h *Handlers) debugCache(ctx context.Context, ref instagram.Ref) debugCacheData {
@@ -492,7 +550,7 @@ func (h *Handlers) embedData(post *instagram.Post) embedData {
 		}
 	}
 	if len(data.Images) > 0 {
-		data.ImageURL = h.publicURL(fmt.Sprintf("/preview/%s/%s/image", post.Ref.Type, post.Ref.Shortcode))
+		data.ImageURL = h.previewImageURL(post)
 		data.HasImage = true
 	}
 
@@ -508,6 +566,14 @@ func (h *Handlers) embedData(post *instagram.Post) embedData {
 	}
 
 	return data
+}
+
+func (h *Handlers) previewImageURL(post *instagram.Post) string {
+	path := fmt.Sprintf("/preview/%s/%s/image", post.Ref.Type, post.Ref.Shortcode)
+	if post.FetchedAt.IsZero() {
+		return h.publicURL(path)
+	}
+	return h.publicURL(path + "?v=" + strconv.FormatInt(post.FetchedAt.Unix(), 10))
 }
 
 func (h *Handlers) media(kind string) http.HandlerFunc {

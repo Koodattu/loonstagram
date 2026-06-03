@@ -126,6 +126,43 @@
         overflow-wrap: anywhere;
       }
 
+      .notice {
+        margin: 12px 0 0;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel-strong);
+      }
+
+      .notice.error {
+        border-color: color-mix(in srgb, var(--error), var(--border) 55%);
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-top: 14px;
+      }
+
+      button {
+        min-height: 34px;
+        padding: 0 12px;
+        border: 1px solid var(--accent);
+        border-radius: 6px;
+        color: var(--ink);
+        background: var(--accent);
+        font: inherit;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      button:focus-visible {
+        outline: 2px solid #62a8ff;
+        outline-offset: 2px;
+      }
+
       .pill {
         display: inline-flex;
         align-items: center;
@@ -181,6 +218,12 @@
           <dt>Cache</dt>
           <dd>{{if .Cache.Hit}}hit{{else}}miss{{end}}{{if .Cache.Error}} <span class="error">{{.Cache.Error}}</span>{{end}}</dd>
         </dl>
+        {{if .Action.Message}}<p class="notice">{{.Action.Message}}</p>{{end}}
+        {{if .Action.Error}}<p class="notice error">{{.Action.Error}}</p>{{end}}
+        <form class="actions" method="post" action="/debug/{{.Ref.Type}}/{{.Ref.Shortcode}}/refresh">
+          <button type="submit">Refresh cached embed</button>
+          <span class="muted">Deletes this post from the Loonstagram cache and fetches it again.</span>
+        </form>
       </section>
 
       {{if .ParsedPost}}
@@ -197,6 +240,10 @@
           <dd>{{.Embed.Title}}</dd>
           <dt>Embed description</dt>
           <dd>{{.Embed.Description}}</dd>
+          {{if .Embed.HasImage}}
+          <dt>Preview image</dt>
+          <dd><a href="{{.Embed.ImageURL}}">{{.Embed.ImageURL}}</a></dd>
+          {{end}}
         </dl>
       </section>
       {{end}}

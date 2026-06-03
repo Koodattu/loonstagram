@@ -56,3 +56,36 @@ func TestCacheHitAndExpiry(t *testing.T) {
 		t.Fatal("expired row should be ignored")
 	}
 }
+
+func TestDeleteRemovesSinglePost(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Unix(1000, 0)
+	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       ref,
+		Status:    "ok",
+		FetchedAt: now,
+		ExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+
+	count, err := store.Delete(ctx, ref)
+	if err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("Delete() count = %d, want 1", count)
+	}
+	if _, ok, err := store.Get(ctx, ref, now); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	} else if ok {
+		t.Fatal("deleted row should not be returned")
+	}
+}
