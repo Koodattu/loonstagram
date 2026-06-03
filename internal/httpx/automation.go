@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"instafix/internal/cache"
-	"instafix/internal/discord"
-	"instafix/internal/instagram"
-	"instafix/internal/secret"
+	"Loonstagram/internal/cache"
+	"Loonstagram/internal/discord"
+	"Loonstagram/internal/instagram"
+	"Loonstagram/internal/secret"
 )
 
 type automationStatusResponse struct {
@@ -262,7 +262,7 @@ func (h *Handlers) exchangeDiscordCode(r *http.Request, code string) (cache.Disc
 		return cache.DiscordWebhook{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "InstaFix/1.0")
+	req.Header.Set("User-Agent", "Loonstagram/1.0")
 
 	client := &http.Client{Timeout: 8 * time.Second}
 	resp, err := client.Do(req)

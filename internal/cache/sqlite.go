@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"instafix/internal/instagram"
+	"Loonstagram/internal/instagram"
 
 	_ "modernc.org/sqlite"
 )

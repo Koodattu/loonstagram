@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"instafix/internal/cache"
-	"instafix/internal/discord"
-	"instafix/internal/instagram"
-	"instafix/internal/secret"
+	"Loonstagram/internal/cache"
+	"Loonstagram/internal/discord"
+	"Loonstagram/internal/instagram"
+	"Loonstagram/internal/secret"
 )
 
 const (

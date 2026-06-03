@@ -4,9 +4,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"instafix/internal/cache"
-	"instafix/internal/httpx"
-	"instafix/internal/instagram"
+	"Loonstagram/internal/cache"
+	"Loonstagram/internal/httpx"
+	"Loonstagram/internal/instagram"
 )
 
 type HTTPHandlerOptions struct {

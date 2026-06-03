@@ -1,10 +1,10 @@
-# InstaFix Rebuild PRD
+# Loonstagram Rebuild PRD
 
 ## 1. Summary
 
 Build a lightweight Go service that turns Instagram post, reel, and video URLs into Discord-friendly share URLs.
 
-The product should work like the current InstaFix idea:
+The product should work like the current Loonstagram idea:
 
 1. A user pastes an Instagram URL into a small web UI.
 2. The service returns a rewritten URL on our domain.
@@ -154,7 +154,7 @@ Response:
 Required metadata:
 
 ```html
-<meta property="og:site_name" content="InstaFix">
+<meta property="og:site_name" content="Loonstagram">
 <meta property="og:type" content="article">
 <meta property="og:title" content="@username on Instagram">
 <meta property="og:description" content="Caption preview">
@@ -233,7 +233,7 @@ SQLite responsibilities:
 ## 6.2 Suggested repository structure
 
 ```text
-cmd/instafix/
+cmd/Loonstagram/
   main.go
 
 internal/app/
@@ -584,7 +584,7 @@ Response:
 {
   "version": "1.0",
   "type": "link",
-  "provider_name": "InstaFix",
+  "provider_name": "Loonstagram",
   "provider_url": "https://fix.example.com",
   "title": "@username on Instagram",
   "author_name": "@username",
@@ -743,7 +743,7 @@ Environment variables:
 ```text
 PUBLIC_BASE_URL=https://fix.example.com
 LISTEN_ADDR=:3000
-DATABASE_PATH=/data/instafix.sqlite
+DATABASE_PATH=/data/Loonstagram.sqlite
 CACHE_SUCCESS_TTL=6h
 CACHE_NEGATIVE_TTL=15m
 CACHE_BLOCKED_TTL=5m
@@ -783,7 +783,7 @@ services:
       dockerfile: deploy/Dockerfile
     environment:
       PUBLIC_BASE_URL: https://fix.example.com
-      DATABASE_PATH: /data/instafix.sqlite
+      DATABASE_PATH: /data/Loonstagram.sqlite
       LISTEN_ADDR: :3000
     volumes:
       - app-data:/data
@@ -817,14 +817,14 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/instafix ./cmd/instafix
+RUN CGO_ENABLED=0 go build -o /out/Loonstagram ./cmd/Loonstagram
 
 FROM alpine:3.21
 RUN adduser -D -H -u 10001 appuser
 USER appuser
-COPY --from=build /out/instafix /usr/local/bin/instafix
+COPY --from=build /out/Loonstagram /usr/local/bin/Loonstagram
 EXPOSE 3000
-ENTRYPOINT ["/usr/local/bin/instafix"]
+ENTRYPOINT ["/usr/local/bin/Loonstagram"]
 ```
 
 If using `modernc.org/sqlite`, `CGO_ENABLED=0` should be possible. If using `mattn/go-sqlite3`, CGO must be enabled and the runtime image gets more complicated. Prefer pure-Go SQLite for this project.

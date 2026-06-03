@@ -3,7 +3,7 @@ package httpx
 import (
 	"testing"
 
-	"instafix/internal/instagram"
+	"Loonstagram/internal/instagram"
 )
 
 func TestEmbedDataUsesUsernameCaptionThemeAndMultipleImages(t *testing.T) {

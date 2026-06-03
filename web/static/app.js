@@ -26,7 +26,7 @@ const lastCheck = document.querySelector("#last-check");
 const lastPost = document.querySelector("#last-post");
 const automationResult = document.querySelector("#automation-result");
 
-const adminStorageKey = "instafix.adminToken";
+const adminStorageKey = "Loonstagram.adminToken";
 
 function setStatus(message, kind = "") {
   statusText.textContent = message;

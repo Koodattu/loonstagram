@@ -5,7 +5,7 @@ RUN go mod download
 COPY . .
 RUN go mod tidy
 RUN go test ./...
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/instafix ./cmd/instafix
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/Loonstagram ./cmd/Loonstagram
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates \
@@ -13,7 +13,7 @@ RUN apk add --no-cache ca-certificates \
   && mkdir -p /data \
   && chown appuser:appuser /data
 USER appuser
-COPY --from=build /out/instafix /usr/local/bin/instafix
+COPY --from=build /out/Loonstagram /usr/local/bin/Loonstagram
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://127.0.0.1:3000/healthz || exit 1
-ENTRYPOINT ["/usr/local/bin/instafix"]
+ENTRYPOINT ["/usr/local/bin/Loonstagram"]

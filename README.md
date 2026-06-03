@@ -1,6 +1,6 @@
-# InstaFix
+# Loonstagram
 
-InstaFix is a small Go service that rewrites public Instagram post, reel, and TV URLs into Discord-friendly share URLs.
+Loonstagram is a small Go service that rewrites public Instagram post, reel, and TV URLs into Discord-friendly share URLs.
 
 Human visitors are redirected to Instagram. Crawlers receive escaped Open Graph and Twitter Card HTML, with metadata cached in SQLite.
 
@@ -75,7 +75,7 @@ docker compose -f deploy/docker-compose.prod.yml up -d nginx
 Required:
 
 - `PUBLIC_BASE_URL`, for example `https://loonstagram.com`
-- `DATABASE_PATH`, for example `/data/instafix.sqlite`
+- `DATABASE_PATH`, for example `/data/Loonstagram.sqlite`
 
 Optional defaults:
 

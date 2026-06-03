@@ -3,7 +3,6 @@ package instagram
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"html"
 	"regexp"
 	"strconv"
@@ -12,9 +11,9 @@ import (
 )
 
 var (
-	metaTagPattern = regexp.MustCompile(`(?is)<meta\s+([^>]+)>`)
-	attrPattern    = regexp.MustCompile(`(?is)([a-zA-Z_:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
-	tagPatternTpl  = `(?is)<%s\s+([^>]+)>`
+	metaTagPattern      = regexp.MustCompile(`(?is)<meta\s+([^>]+)>`)
+	attrPattern         = regexp.MustCompile(`(?is)([a-zA-Z_:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+	metaUsernamePattern = regexp.MustCompile(`(?:^|[\s(])@([A-Za-z0-9_.]+)`)
 )
 
 func ParseEmbedHTML(ref Ref, body string) (*Post, error) {
@@ -45,10 +44,9 @@ func ParseEmbedHTML(ref Ref, body string) (*Post, error) {
 
 	meta := parseMetaTags(body)
 	applyMetaFallback(post, meta)
-	applyTagFallback(post, body)
 
 	post.Caption = CleanCaption(post.Caption)
-	if post.Username == "" && len(post.Media) == 0 && post.Caption == "" {
+	if post.Username == "" && post.Caption == "" {
 		return nil, errors.New("no usable instagram metadata found")
 	}
 
@@ -361,10 +359,14 @@ func bestVideoVersion(item map[string]any) (string, int, int) {
 
 func applyMetaFallback(post *Post, meta map[string]string) {
 	if post.Username == "" {
-		post.Username = usernameFromTitle(firstString(meta["og:title"], meta["twitter:title"]))
+		post.Username = usernameFromMeta(meta)
 	}
 	if post.Caption == "" {
 		post.Caption = firstString(meta["og:description"], meta["twitter:description"])
+	}
+
+	if post.Username == "" && post.Caption == "" {
+		return
 	}
 
 	imageURL := firstString(meta["og:image"], meta["twitter:image"])
@@ -387,36 +389,6 @@ func applyMetaFallback(post *Post, meta map[string]string) {
 	}
 }
 
-func applyTagFallback(post *Post, body string) {
-	if len(post.Media) > 0 {
-		return
-	}
-
-	if videoAttrs := firstTagAttrs(body, "video"); videoAttrs != nil {
-		videoURL := firstString(videoAttrs["src"])
-		posterURL := firstString(videoAttrs["poster"])
-		if videoURL != "" || posterURL != "" {
-			post.Media = append(post.Media, MediaItem{
-				Kind:        "video",
-				URL:         videoURL,
-				PosterURL:   posterURL,
-				ContentType: "video/mp4",
-			})
-			return
-		}
-	}
-
-	if imgAttrs := firstTagAttrs(body, "img"); imgAttrs != nil {
-		if src := imgAttrs["src"]; src != "" {
-			post.Media = append(post.Media, MediaItem{
-				Kind:        "image",
-				URL:         src,
-				ContentType: "image/jpeg",
-			})
-		}
-	}
-}
-
 func parseMetaTags(body string) map[string]string {
 	out := make(map[string]string)
 	for _, match := range metaTagPattern.FindAllStringSubmatch(body, -1) {
@@ -429,15 +401,6 @@ func parseMetaTags(body string) map[string]string {
 		out[key] = html.UnescapeString(content)
 	}
 	return out
-}
-
-func firstTagAttrs(body, tag string) map[string]string {
-	re := regexp.MustCompile(fmt.Sprintf(tagPatternTpl, regexp.QuoteMeta(tag)))
-	match := re.FindStringSubmatch(body)
-	if len(match) < 2 {
-		return nil
-	}
-	return parseAttrs(match[1])
 }
 
 func parseAttrs(input string) map[string]string {
@@ -616,17 +579,33 @@ func matchingJSONEnd(input string, start int) int {
 }
 
 func usernameFromTitle(title string) string {
-	title = strings.TrimSpace(title)
-	if title == "" {
+	return usernameFromText(title)
+}
+
+func usernameFromMeta(meta map[string]string) string {
+	for _, value := range []string{
+		meta["og:title"],
+		meta["twitter:title"],
+		meta["og:description"],
+		meta["twitter:description"],
+	} {
+		if username := usernameFromText(value); username != "" {
+			return username
+		}
+	}
+	return ""
+}
+
+func usernameFromText(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return ""
 	}
-	if strings.HasPrefix(title, "@") {
-		for i, r := range title[1:] {
-			if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.') {
-				return title[1 : i+1]
-			}
-		}
-		return strings.TrimPrefix(title, "@")
+	if match := metaUsernamePattern.FindStringSubmatch(value); len(match) == 2 {
+		return match[1]
+	}
+	if before, _, ok := strings.Cut(value, " on "); ok && ValidUsername(before) {
+		return before
 	}
 	return ""
 }

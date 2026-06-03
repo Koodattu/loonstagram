@@ -3,7 +3,7 @@ package httpx
 import (
 	"sync"
 
-	"instafix/internal/instagram"
+	"Loonstagram/internal/instagram"
 )
 
 type flight struct {

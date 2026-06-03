@@ -8,7 +8,7 @@ func TestParseEmbedHTMLExtractsShortcodeMedia(t *testing.T) {
 <html>
   <script>
     window.__data = {"graphql":{"shortcode_media":{
-      "owner":{"username":"instafix_user"},
+      "owner":{"username":"Loonstagram_user"},
       "edge_media_to_caption":{"edges":[{"node":{"text":"Hello <world>\n\nfrom Instagram"}}]},
       "is_video":true,
       "display_url":"https://scontent.cdninstagram.com/poster.jpg",
@@ -22,7 +22,7 @@ func TestParseEmbedHTMLExtractsShortcodeMedia(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseEmbedHTML() error = %v", err)
 	}
-	if post.Username != "instafix_user" {
+	if post.Username != "Loonstagram_user" {
 		t.Fatalf("Username = %q", post.Username)
 	}
 	if post.Caption != "Hello <world>\n\nfrom Instagram" {
@@ -40,7 +40,7 @@ func TestParseEmbedHTMLExtractsShortcodeMedia(t *testing.T) {
 func TestParseEmbedHTMLUsesMetaFallback(t *testing.T) {
 	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
 	body := `
-<meta property="og:title" content="@instafix_user on Instagram">
+<meta property="og:title" content="@Loonstagram_user on Instagram">
 <meta property="og:description" content="Fallback caption">
 <meta property="og:image" content="https://scontent.cdninstagram.com/image.jpg">
 `
@@ -49,11 +49,47 @@ func TestParseEmbedHTMLUsesMetaFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseEmbedHTML() error = %v", err)
 	}
-	if post.Username != "instafix_user" || post.Caption != "Fallback caption" {
+	if post.Username != "Loonstagram_user" || post.Caption != "Fallback caption" {
 		t.Fatalf("post = %#v", post)
 	}
 	if len(post.Media) != 1 || post.Media[0].Kind != "image" {
 		t.Fatalf("media = %#v", post.Media)
+	}
+}
+
+func TestParseEmbedHTMLUsesOriginalPageMetaFallback(t *testing.T) {
+	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
+	body := `
+<meta property="og:title" content="Loonlet the Fabulous on Instagram: &quot;Fallback caption&quot;">
+<meta property="og:description" content="loonletwow on June 1, 2026: &quot;Fallback caption&quot;">
+<meta property="og:image" content="https://scontent.cdninstagram.com/post.jpg">
+<meta name="twitter:title" content="Loonlet the Fabulous (&#064;loonletwow) &#x2022; Instagram photo">
+`
+
+	post, err := ParseEmbedHTML(ref, body)
+	if err != nil {
+		t.Fatalf("ParseEmbedHTML() error = %v", err)
+	}
+	if post.Username != "loonletwow" {
+		t.Fatalf("Username = %q", post.Username)
+	}
+	if post.Caption == "" {
+		t.Fatalf("Caption is empty")
+	}
+	if len(post.Media) != 1 || post.Media[0].URL != "https://scontent.cdninstagram.com/post.jpg" {
+		t.Fatalf("media = %#v", post.Media)
+	}
+}
+
+func TestParseEmbedHTMLRejectsMediaOnlyFallback(t *testing.T) {
+	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
+	body := `
+<meta property="og:image" content="https://scontent.cdninstagram.com/profile.jpg">
+<img src="https://scontent.cdninstagram.com/profile-inline.jpg">
+`
+
+	if _, err := ParseEmbedHTML(ref, body); err == nil {
+		t.Fatalf("ParseEmbedHTML() succeeded, want error")
 	}
 }
 

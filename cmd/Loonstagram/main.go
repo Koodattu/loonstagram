@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"instafix/internal/app"
-	"instafix/internal/automation"
-	"instafix/internal/cache"
-	"instafix/internal/discord"
-	"instafix/internal/instagram"
+	"Loonstagram/internal/app"
+	"Loonstagram/internal/automation"
+	"Loonstagram/internal/cache"
+	"Loonstagram/internal/discord"
+	"Loonstagram/internal/instagram"
 )
 
 func main() {
@@ -91,7 +91,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("starting instafix", "addr", cfg.ListenAddr, "public_base_url", cfg.PublicBaseURL)
+	logger.Info("starting Loonstagram", "addr", cfg.ListenAddr, "public_base_url", cfg.PublicBaseURL)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)

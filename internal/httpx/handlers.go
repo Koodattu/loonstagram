@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"instafix/internal/cache"
-	"instafix/internal/instagram"
-	"instafix/web"
+	"Loonstagram/internal/cache"
+	"Loonstagram/internal/instagram"
+	"Loonstagram/web"
 )
 
 type PostFetcher interface {
@@ -274,7 +274,7 @@ func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref insta
 	parsedPost := bestDebugPost(fresh, cacheData.Post)
 
 	data := debugPageData{
-		Title:       "InstaFix debug",
+		Title:       "Loonstagram debug",
 		Ref:         ref,
 		OriginalURL: ref.OriginalURL(),
 		EmbedURL:    ref.EmbedURL(),
@@ -368,12 +368,35 @@ func (h *Handlers) debugMedia(post *instagram.Post) []debugMediaData {
 }
 
 func bestDebugPost(report instagram.DebugReport, cached *instagram.Post) *instagram.Post {
+	best := cached
+	bestScore := debugPostScore(cached)
 	for _, fetch := range report.Fetches {
-		if fetch.ParsedPost != nil {
-			return fetch.ParsedPost
+		if score := debugPostScore(fetch.ParsedPost); score > bestScore {
+			best = fetch.ParsedPost
+			bestScore = score
 		}
 	}
-	return cached
+	return best
+}
+
+func debugPostScore(post *instagram.Post) int {
+	if post == nil || (post.Username == "" && post.Caption == "") {
+		return 0
+	}
+	score := 0
+	if post.Status == "ok" {
+		score++
+	}
+	if post.Username != "" {
+		score += 4
+	}
+	if post.Caption != "" {
+		score += 3
+	}
+	if len(post.Media) > 0 {
+		score += 2
+	}
+	return score
 }
 
 func (h *Handlers) renderEmbed(w http.ResponseWriter, post *instagram.Post) {
@@ -423,7 +446,7 @@ func (h *Handlers) embedData(post *instagram.Post) embedData {
 	}
 
 	data := embedData{
-		SiteName:       "InstaFix",
+		SiteName:       "Loonstagram",
 		Title:          title,
 		Description:    description,
 		OriginalURL:    post.Ref.OriginalURL(),
@@ -604,7 +627,7 @@ func (h *Handlers) streamMedia(w http.ResponseWriter, r *http.Request, target, f
 		http.Error(w, "Bad upstream media URL", http.StatusBadGateway)
 		return
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; InstaFix/1.0)")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Loonstagram/1.0)")
 	req.Header.Set("Accept", "*/*")
 	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
 		req.Header.Set("Range", rangeHeader)

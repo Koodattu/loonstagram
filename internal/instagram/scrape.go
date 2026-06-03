@@ -34,7 +34,7 @@ type ClientConfig struct {
 }
 
 type Client struct {
-	httpClient    *http.Client
+	httpClient   *http.Client
 	maxBodyBytes int64
 }
 
@@ -56,7 +56,22 @@ func NewClient(cfg ClientConfig) *Client {
 }
 
 func (c *Client) FetchPost(ctx context.Context, ref Ref) (*Post, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ref.EmbedURL(), nil)
+	post, err := c.fetchPostPage(ctx, ref, ref.EmbedURL())
+	if err == nil {
+		return post, nil
+	}
+
+	var fetchErr FetchError
+	if errors.As(err, &fetchErr) && fetchErr.Kind == FetchErrorParse {
+		if fallbackPost, fallbackErr := c.fetchPostPage(ctx, ref, ref.OriginalURL()); fallbackErr == nil {
+			return fallbackPost, nil
+		}
+	}
+	return nil, err
+}
+
+func (c *Client) fetchPostPage(ctx context.Context, ref Ref, target string) (*Post, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, FetchError{Kind: FetchErrorNetwork, Message: err.Error()}
 	}

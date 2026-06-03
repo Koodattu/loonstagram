@@ -101,7 +101,7 @@ func (c *ProfileClient) FetchRecentMedia(ctx context.Context, username string, l
 	if err != nil {
 		return nil, ProfileFetchError{Kind: FetchErrorNetwork, Message: err.Error()}
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; InstaFix/1.0; +https://github.com/)")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Loonstagram/1.0; +https://github.com/)")
 	req.Header.Set("Accept", "application/json,text/plain,*/*")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	req.Header.Set("X-IG-App-ID", c.appID)

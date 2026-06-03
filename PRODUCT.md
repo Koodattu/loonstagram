@@ -6,11 +6,11 @@ product
 
 ## Users
 
-InstaFix serves casual Discord users who want a fixed Instagram share URL without understanding URL rewriting, power users who know the canonical paths and edit links directly, and preview crawlers such as Discordbot that need immediate metadata HTML.
+Loonstagram serves casual Discord users who want a fixed Instagram share URL without understanding URL rewriting, power users who know the canonical paths and edit links directly, and preview crawlers such as Discordbot that need immediate metadata HTML.
 
 ## Product Purpose
 
-The product turns supported public Instagram post, reel, and video URLs into shareable InstaFix URLs. Human visitors should land on the original Instagram page, while crawlers receive escaped Open Graph and Twitter Card metadata that produces a useful Discord preview.
+The product turns supported public Instagram post, reel, and video URLs into shareable Loonstagram URLs. Human visitors should land on the original Instagram page, while crawlers receive escaped Open Graph and Twitter Card metadata that produces a useful Discord preview.
 
 ## Brand Personality
 

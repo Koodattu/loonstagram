@@ -5,7 +5,7 @@ services:
       dockerfile: deploy/Dockerfile.prod
     environment:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://loonstagram.com}
-      DATABASE_PATH: /data/instafix.sqlite
+      DATABASE_PATH: /data/Loonstagram.sqlite
       LISTEN_ADDR: :3000
       CACHE_SUCCESS_TTL: ${CACHE_SUCCESS_TTL:-6h}
       CACHE_NEGATIVE_TTL: ${CACHE_NEGATIVE_TTL:-15m}

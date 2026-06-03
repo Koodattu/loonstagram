@@ -71,7 +71,7 @@ func (c *Client) SendWebhook(ctx context.Context, webhookURL, content string) er
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "InstaFix/1.0")
+	req.Header.Set("User-Agent", "Loonstagram/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

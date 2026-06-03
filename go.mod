@@ -1,4 +1,4 @@
-module instafix
+module Loonstagram
 
 go 1.23
 

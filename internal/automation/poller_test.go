@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"instafix/internal/cache"
-	"instafix/internal/instagram"
+	"Loonstagram/internal/cache"
+	"Loonstagram/internal/instagram"
 )
 
 type fakeProfileFetcher struct {
