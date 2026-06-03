@@ -414,6 +414,8 @@ type embedData struct {
 	OriginalURL    string
 	CanonicalURL   string
 	ImageURL       string
+	ImageWidth     int
+	ImageHeight    int
 	Images         []embedImage
 	VideoURL       string
 	HasImage       bool
@@ -440,7 +442,7 @@ func (h *Handlers) embedData(post *instagram.Post) embedData {
 		title = "@" + post.Username
 	}
 
-	description := instagram.CaptionPreview(post.Caption, 280)
+	description := instagram.CleanCaption(post.Caption)
 	if description == "" {
 		description = "Open this Instagram post."
 	}
@@ -479,6 +481,8 @@ func (h *Handlers) embedData(post *instagram.Post) embedData {
 	}
 	if len(data.Images) > 0 {
 		data.ImageURL = data.Images[0].URL
+		data.ImageWidth = data.Images[0].Width
+		data.ImageHeight = data.Images[0].Height
 		data.HasImage = true
 	}
 

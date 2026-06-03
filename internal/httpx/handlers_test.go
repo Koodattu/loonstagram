@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"strings"
 	"testing"
 
 	"Loonstagram/internal/instagram"
@@ -32,12 +33,31 @@ func TestEmbedDataUsesUsernameCaptionThemeAndMultipleImages(t *testing.T) {
 	if !data.HasImage || data.ImageURL != "https://loonstagram.com/media/p/ABC123xyz/1/image" {
 		t.Fatalf("ImageURL = %q, HasImage = %v", data.ImageURL, data.HasImage)
 	}
+	if data.ImageWidth != 1080 || data.ImageHeight != 1080 {
+		t.Fatalf("Image dimensions = %dx%d", data.ImageWidth, data.ImageHeight)
+	}
 	if len(data.Images) != 2 {
 		t.Fatalf("Images length = %d", len(data.Images))
 	}
 	if data.Images[0].URL != "https://loonstagram.com/media/p/ABC123xyz/1/image" ||
 		data.Images[1].URL != "https://loonstagram.com/media/p/ABC123xyz/2/image" {
 		t.Fatalf("Images = %#v", data.Images)
+	}
+}
+
+func TestEmbedDataUsesFullCaption(t *testing.T) {
+	h := &Handlers{publicBaseURL: "https://loonstagram.com"}
+	longCaption := strings.Repeat("caption ", 80)
+	post := &instagram.Post{
+		Ref:      instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"},
+		Username: "loonletwow",
+		Caption:  longCaption,
+		Status:   "ok",
+	}
+
+	data := h.embedData(post)
+	if data.Description != strings.TrimSpace(longCaption) {
+		t.Fatalf("Description was truncated: got %d chars, want %d", len(data.Description), len(strings.TrimSpace(longCaption)))
 	}
 }
 

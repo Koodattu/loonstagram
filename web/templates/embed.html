@@ -19,7 +19,9 @@
     <meta name="twitter:card" content="{{if .HasVideo}}player{{else}}summary_large_image{{end}}">
     <meta name="twitter:title" content="{{.Title}}">
     <meta name="twitter:description" content="{{.Description}}">
-    {{if .HasImage}}<meta name="twitter:image" content="{{.ImageURL}}">{{end}}
+    {{if .HasImage}}<meta name="twitter:image" content="{{.ImageURL}}">
+    {{if .ImageWidth}}<meta name="twitter:image:width" content="{{.ImageWidth}}">{{end}}
+    {{if .ImageHeight}}<meta name="twitter:image:height" content="{{.ImageHeight}}">{{end}}{{end}}
     {{if .HasVideo}}<meta name="twitter:player:stream" content="{{.VideoURL}}">
     <meta name="twitter:player:stream:content_type" content="{{.VideoType}}">{{end}}
     <link rel="canonical" href="{{.CanonicalURL}}">
