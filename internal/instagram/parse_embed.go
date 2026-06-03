@@ -27,7 +27,7 @@ func ParseEmbedHTML(ref Ref, body string) (*Post, error) {
 	for _, key := range []string{"shortcode_media", "xdt_shortcode_media"} {
 		for _, raw := range extractJSONValuesAfterKey(body, key, 4) {
 			var node map[string]any
-			if err := json.Unmarshal([]byte(raw), &node); err == nil {
+			if err := unmarshalJSONValue(raw, &node); err == nil {
 				applyGraphQLNode(post, node)
 			}
 			if post.Username != "" && post.Caption != "" && len(post.Media) > 0 {
@@ -58,7 +58,7 @@ func ParseEmbedHTML(ref Ref, body string) (*Post, error) {
 func applyInstagramAPIFallback(post *Post, body string) {
 	for _, raw := range extractJSONValuesAfterKey(body, "items", 24) {
 		var items []any
-		if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		if err := unmarshalJSONValue(raw, &items); err != nil {
 			continue
 		}
 		if applyInstagramAPIItems(post, items) {
@@ -452,6 +452,38 @@ func parseAttrs(input string) map[string]string {
 	return out
 }
 
+func unmarshalJSONValue(raw string, value any) error {
+	if err := json.Unmarshal([]byte(raw), value); err == nil {
+		return nil
+	}
+
+	decoded, ok := decodeEscapedJSONValue(raw)
+	if !ok {
+		return json.Unmarshal([]byte(raw), value)
+	}
+	return json.Unmarshal([]byte(decoded), value)
+}
+
+func decodeEscapedJSONValue(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !strings.Contains(raw, `\"`) {
+		return "", false
+	}
+	if !strings.HasPrefix(raw, "{") && !strings.HasPrefix(raw, "[") {
+		return "", false
+	}
+
+	var decoded string
+	if err := json.Unmarshal([]byte(`"`+raw+`"`), &decoded); err != nil {
+		return "", false
+	}
+	decoded = strings.TrimSpace(decoded)
+	if !strings.HasPrefix(decoded, "{") && !strings.HasPrefix(decoded, "[") {
+		return "", false
+	}
+	return decoded, true
+}
+
 func extractJSONObjectAfterKey(input, key string) (string, bool) {
 	for _, raw := range extractJSONValuesAfterKey(input, key, 1) {
 		if strings.HasPrefix(raw, "{") {
@@ -523,10 +555,27 @@ func matchingObjectEnd(input string, start int) int {
 func matchingJSONEnd(input string, start int) int {
 	stack := make([]byte, 0, 8)
 	inString := false
+	inEscapedString := false
 	escape := false
 	for i := start; i < len(input); i++ {
 		ch := input[i]
 		if inString {
+			if inEscapedString {
+				if escape {
+					escape = false
+					continue
+				}
+				if ch == '\\' {
+					if i+1 < len(input) && input[i+1] == '"' {
+						inString = false
+						inEscapedString = false
+						i++
+						continue
+					}
+					escape = true
+				}
+				continue
+			}
 			if escape {
 				escape = false
 				continue
@@ -541,6 +590,12 @@ func matchingJSONEnd(input string, start int) int {
 			continue
 		}
 		switch ch {
+		case '\\':
+			if i+1 < len(input) && input[i+1] == '"' {
+				inString = true
+				inEscapedString = true
+				i++
+			}
 		case '"':
 			inString = true
 		case '{':

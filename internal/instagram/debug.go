@@ -168,6 +168,10 @@ func extractDebugJSON(body string) []DebugJSONBlock {
 }
 
 func prettyJSON(raw string) string {
+	if decoded, ok := decodeEscapedJSONValue(raw); ok {
+		raw = decoded
+	}
+
 	var buf bytes.Buffer
 	if err := json.Indent(&buf, []byte(raw), "", "  "); err != nil {
 		return ""
