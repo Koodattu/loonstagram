@@ -49,6 +49,12 @@ The production Dockerfile only builds the release binary. Run tests before deplo
 go test ./...
 ```
 
+If `go.sum` is missing after dependency changes, regenerate it before deploying:
+
+```sh
+go mod tidy
+```
+
 5. Check it:
 
 ```sh
