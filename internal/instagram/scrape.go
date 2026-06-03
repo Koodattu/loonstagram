@@ -60,9 +60,7 @@ func (c *Client) FetchPost(ctx context.Context, ref Ref) (*Post, error) {
 	if err != nil {
 		return nil, FetchError{Kind: FetchErrorNetwork, Message: err.Error()}
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; InstaFix/1.0; +https://github.com/)")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	setInstagramRequestHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

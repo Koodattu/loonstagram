@@ -24,11 +24,23 @@ func ParseEmbedHTML(ref Ref, body string) (*Post, error) {
 		Media:       make([]MediaItem, 0, 1),
 	}
 
-	if raw, ok := extractJSONObjectAfterKey(body, "shortcode_media"); ok {
-		var node map[string]any
-		if err := json.Unmarshal([]byte(raw), &node); err == nil {
-			applyGraphQLNode(post, node)
+	for _, key := range []string{"shortcode_media", "xdt_shortcode_media"} {
+		for _, raw := range extractJSONValuesAfterKey(body, key, 4) {
+			var node map[string]any
+			if err := json.Unmarshal([]byte(raw), &node); err == nil {
+				applyGraphQLNode(post, node)
+			}
+			if post.Username != "" && post.Caption != "" && len(post.Media) > 0 {
+				break
+			}
 		}
+		if post.Username != "" && post.Caption != "" && len(post.Media) > 0 {
+			break
+		}
+	}
+
+	if post.Username == "" || post.Caption == "" || len(post.Media) == 0 {
+		applyInstagramAPIFallback(post, body)
 	}
 
 	meta := parseMetaTags(body)
@@ -41,6 +53,18 @@ func ParseEmbedHTML(ref Ref, body string) (*Post, error) {
 	}
 
 	return post, nil
+}
+
+func applyInstagramAPIFallback(post *Post, body string) {
+	for _, raw := range extractJSONValuesAfterKey(body, "items", 24) {
+		var items []any
+		if err := json.Unmarshal([]byte(raw), &items); err != nil {
+			continue
+		}
+		if applyInstagramAPIItems(post, items) {
+			return
+		}
+	}
 }
 
 func CleanCaption(value string) string {
@@ -119,6 +143,57 @@ func applyGraphQLNode(post *Post, node map[string]any) {
 	}
 }
 
+func applyInstagramAPIItems(post *Post, items []any) bool {
+	for _, item := range items {
+		node := asMap(item)
+		if node == nil || !looksLikeInstagramAPIItem(node) {
+			continue
+		}
+		beforeUsername := post.Username
+		beforeCaption := post.Caption
+		beforeMedia := len(post.Media)
+		applyInstagramAPIItem(post, node)
+		if post.Username != beforeUsername || post.Caption != beforeCaption || len(post.Media) != beforeMedia {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeInstagramAPIItem(node map[string]any) bool {
+	return asMap(node["user"]) != nil ||
+		asMap(node["caption"]) != nil ||
+		asMap(node["image_versions2"]) != nil ||
+		len(asSlice(node["video_versions"])) > 0 ||
+		len(asSlice(node["carousel_media"])) > 0
+}
+
+func applyInstagramAPIItem(post *Post, item map[string]any) {
+	if post.Username == "" {
+		if user := asMap(item["user"]); user != nil {
+			post.Username = asString(user["username"])
+		}
+	}
+	if post.Caption == "" {
+		if caption := asMap(item["caption"]); caption != nil {
+			post.Caption = asString(caption["text"])
+		}
+	}
+
+	children := asSlice(item["carousel_media"])
+	if len(children) == 0 {
+		appendMediaFromAPIItem(post, item)
+		return
+	}
+	for _, child := range children {
+		childNode := asMap(child)
+		if childNode == nil {
+			continue
+		}
+		appendMediaFromAPIItem(post, childNode)
+	}
+}
+
 func appendMediaFromNode(post *Post, node map[string]any) {
 	displayURL := firstString(
 		asString(node["display_url"]),
@@ -156,6 +231,45 @@ func appendMediaFromNode(post *Post, node map[string]any) {
 	})
 }
 
+func appendMediaFromAPIItem(post *Post, item map[string]any) {
+	imageURL, imageWidth, imageHeight := bestImageVersion(item)
+	videoURL, videoWidth, videoHeight := bestVideoVersion(item)
+	isVideo := asInt(item["media_type"]) == 2 || videoURL != ""
+
+	if isVideo {
+		if videoURL == "" && imageURL == "" {
+			return
+		}
+		width, height := imageWidth, imageHeight
+		if width == 0 {
+			width = videoWidth
+		}
+		if height == 0 {
+			height = videoHeight
+		}
+		post.Media = append(post.Media, MediaItem{
+			Kind:        "video",
+			URL:         videoURL,
+			PosterURL:   imageURL,
+			Width:       width,
+			Height:      height,
+			ContentType: "video/mp4",
+		})
+		return
+	}
+
+	if imageURL == "" {
+		return
+	}
+	post.Media = append(post.Media, MediaItem{
+		Kind:        "image",
+		URL:         imageURL,
+		Width:       imageWidth,
+		Height:      imageHeight,
+		ContentType: "image/jpeg",
+	})
+}
+
 func largestDisplayResource(node map[string]any) string {
 	resources := asSlice(node["display_resources"])
 	bestURL := ""
@@ -179,6 +293,70 @@ func dimensions(node map[string]any) (int, int) {
 		return asInt(dims["width"]), asInt(dims["height"])
 	}
 	return 0, 0
+}
+
+func bestImageVersion(item map[string]any) (string, int, int) {
+	versions := asMap(item["image_versions2"])
+	candidates := asSlice(versions["candidates"])
+	bestURL := firstString(
+		asString(item["thumbnail_url"]),
+		asString(item["display_url"]),
+	)
+	bestWidth := asInt(item["original_width"])
+	bestHeight := asInt(item["original_height"])
+	bestArea := bestWidth * bestHeight
+
+	for _, candidate := range candidates {
+		node := asMap(candidate)
+		if node == nil {
+			continue
+		}
+		url := asString(node["url"])
+		if url == "" {
+			continue
+		}
+		width := asInt(node["width"])
+		height := asInt(node["height"])
+		area := width * height
+		if bestURL == "" || area >= bestArea {
+			bestURL = url
+			bestWidth = width
+			bestHeight = height
+			bestArea = area
+		}
+	}
+
+	return bestURL, bestWidth, bestHeight
+}
+
+func bestVideoVersion(item map[string]any) (string, int, int) {
+	candidates := asSlice(item["video_versions"])
+	bestURL := ""
+	bestWidth := 0
+	bestHeight := 0
+	bestArea := 0
+
+	for _, candidate := range candidates {
+		node := asMap(candidate)
+		if node == nil {
+			continue
+		}
+		url := asString(node["url"])
+		if url == "" {
+			continue
+		}
+		width := asInt(node["width"])
+		height := asInt(node["height"])
+		area := width * height
+		if bestURL == "" || area >= bestArea {
+			bestURL = url
+			bestWidth = width
+			bestHeight = height
+			bestArea = area
+		}
+	}
+
+	return bestURL, bestWidth, bestHeight
 }
 
 func applyMetaFallback(post *Post, meta map[string]string) {
@@ -275,36 +453,75 @@ func parseAttrs(input string) map[string]string {
 }
 
 func extractJSONObjectAfterKey(input, key string) (string, bool) {
-	patterns := []string{`"` + key + `"`, key}
-	keyIndex := -1
-	for _, pattern := range patterns {
-		keyIndex = strings.Index(input, pattern)
-		if keyIndex >= 0 {
-			break
+	for _, raw := range extractJSONValuesAfterKey(input, key, 1) {
+		if strings.HasPrefix(raw, "{") {
+			return raw, true
 		}
 	}
-	if keyIndex < 0 {
-		return "", false
+	return "", false
+}
+
+func extractJSONValuesAfterKey(input, key string, max int) []string {
+	if max <= 0 {
+		return nil
 	}
 
-	colonIndex := strings.Index(input[keyIndex:], ":")
-	if colonIndex < 0 {
-		return "", false
+	patterns := []string{`"` + key + `"`}
+	if key != "items" {
+		patterns = append(patterns, key)
 	}
-	objectStart := strings.Index(input[keyIndex+colonIndex:], "{")
-	if objectStart < 0 {
-		return "", false
+	values := make([]string, 0, 1)
+	searchStart := 0
+	for searchStart < len(input) && len(values) < max {
+		relativeIndex := -1
+		patternLen := 0
+		for _, pattern := range patterns {
+			index := strings.Index(input[searchStart:], pattern)
+			if index >= 0 && (relativeIndex < 0 || index < relativeIndex) {
+				relativeIndex = index
+				patternLen = len(pattern)
+			}
+		}
+		if relativeIndex < 0 {
+			break
+		}
+
+		keyIndex := searchStart + relativeIndex
+		afterKey := keyIndex + patternLen
+		colonIndex := strings.Index(input[afterKey:], ":")
+		if colonIndex < 0 {
+			break
+		}
+
+		valueStart := afterKey + colonIndex + 1
+		for valueStart < len(input) && unicode.IsSpace(rune(input[valueStart])) {
+			valueStart++
+		}
+		if valueStart >= len(input) || (input[valueStart] != '{' && input[valueStart] != '[') {
+			searchStart = afterKey
+			continue
+		}
+
+		end := matchingJSONEnd(input, valueStart)
+		if end < 0 {
+			searchStart = afterKey
+			continue
+		}
+		values = append(values, input[valueStart:end+1])
+		searchStart = end + 1
 	}
-	start := keyIndex + colonIndex + objectStart
-	end := matchingObjectEnd(input, start)
-	if end < 0 {
-		return "", false
-	}
-	return input[start : end+1], true
+	return values
 }
 
 func matchingObjectEnd(input string, start int) int {
-	depth := 0
+	if start >= len(input) || input[start] != '{' {
+		return -1
+	}
+	return matchingJSONEnd(input, start)
+}
+
+func matchingJSONEnd(input string, start int) int {
+	stack := make([]byte, 0, 8)
 	inString := false
 	escape := false
 	for i := start; i < len(input); i++ {
@@ -327,10 +544,15 @@ func matchingObjectEnd(input string, start int) int {
 		case '"':
 			inString = true
 		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
+			stack = append(stack, '}')
+		case '[':
+			stack = append(stack, ']')
+		case '}', ']':
+			if len(stack) == 0 || stack[len(stack)-1] != ch {
+				return -1
+			}
+			stack = stack[:len(stack)-1]
+			if len(stack) == 0 {
 				return i
 			}
 		}

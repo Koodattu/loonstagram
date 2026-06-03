@@ -24,6 +24,7 @@ type Config struct {
 	MediaProxyMode                string
 	EnableInstagramGraphQLFallback bool
 	InstagramOEmbedAccessToken     string
+	DebugToken                     string
 	LogLevel                       string
 	MaxFetchBytes                  int64
 }
@@ -40,6 +41,7 @@ func LoadConfig() (Config, error) {
 		MediaProxyMode:                envString("MEDIA_PROXY_MODE", "redirect"),
 		EnableInstagramGraphQLFallback: envBool("ENABLE_INSTAGRAM_GQL_FALLBACK", false),
 		InstagramOEmbedAccessToken:     os.Getenv("INSTAGRAM_OEMBED_ACCESS_TOKEN"),
+		DebugToken:                     strings.TrimSpace(os.Getenv("DEBUG_TOKEN")),
 		LogLevel:                       envString("LOG_LEVEL", "info"),
 		MaxFetchBytes:                  envInt64("MAX_FETCH_BYTES", defaultMaxFetchBytes),
 	}

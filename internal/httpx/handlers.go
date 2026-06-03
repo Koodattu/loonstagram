@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,12 +25,17 @@ type PostFetcher interface {
 	FetchPost(ctx context.Context, ref instagram.Ref) (*instagram.Post, error)
 }
 
+type PostDebugger interface {
+	DebugFetchPost(ctx context.Context, ref instagram.Ref) instagram.DebugReport
+}
+
 type Options struct {
 	PublicBaseURL    string
 	CacheSuccessTTL  time.Duration
 	CacheNegativeTTL time.Duration
 	CacheBlockedTTL  time.Duration
 	MediaProxyMode   string
+	DebugToken       string
 	Store            *cache.Store
 	Scraper          PostFetcher
 	Logger           *slog.Logger
@@ -41,6 +47,7 @@ type Handlers struct {
 	cacheNegativeTTL time.Duration
 	cacheBlockedTTL  time.Duration
 	mediaProxyMode   string
+	debugToken       string
 	store            *cache.Store
 	scraper          PostFetcher
 	logger           *slog.Logger
@@ -72,6 +79,7 @@ func NewHandlers(opts Options) (*Handlers, error) {
 		cacheNegativeTTL: opts.CacheNegativeTTL,
 		cacheBlockedTTL:  opts.CacheBlockedTTL,
 		mediaProxyMode:   opts.MediaProxyMode,
+		debugToken:       opts.DebugToken,
 		store:            opts.Store,
 		scraper:          opts.Scraper,
 		logger:           opts.Logger,
@@ -104,6 +112,10 @@ func (h *Handlers) Routes() http.Handler {
 	mux.HandleFunc("GET /tv/{shortcode}", h.canonical(instagram.TypeTV))
 	mux.HandleFunc("GET /media/{type}/{shortcode}/{index}/image", h.media("image"))
 	mux.HandleFunc("GET /media/{type}/{shortcode}/{index}/video", h.media("video"))
+	if h.debugToken != "" {
+		mux.HandleFunc("GET /debug", h.debugFromQuery)
+		mux.HandleFunc("GET /debug/{type}/{shortcode}", h.debugCanonical)
+	}
 	return RequestLogger(h.logger, mux)
 }
 
@@ -183,6 +195,193 @@ func (h *Handlers) canonical(mediaType string) http.HandlerFunc {
 	}
 }
 
+func (h *Handlers) debugFromQuery(w http.ResponseWriter, r *http.Request) {
+	if !h.authorizeDebug(w, r) {
+		return
+	}
+
+	ref, err := instagram.NormalizeURL(r.URL.Query().Get("url"))
+	if err != nil {
+		http.Error(w, "Unsupported Instagram URL", http.StatusBadRequest)
+		return
+	}
+	h.renderDebug(w, r, ref)
+}
+
+func (h *Handlers) debugCanonical(w http.ResponseWriter, r *http.Request) {
+	if !h.authorizeDebug(w, r) {
+		return
+	}
+
+	ref, err := instagram.NewRef(r.PathValue("type"), r.PathValue("shortcode"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	h.renderDebug(w, r, ref)
+}
+
+func (h *Handlers) authorizeDebug(w http.ResponseWriter, r *http.Request) bool {
+	if h.debugToken == "" {
+		http.NotFound(w, r)
+		return false
+	}
+
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		const bearerPrefix = "Bearer "
+		if value := r.Header.Get("Authorization"); strings.HasPrefix(value, bearerPrefix) {
+			token = strings.TrimSpace(strings.TrimPrefix(value, bearerPrefix))
+		}
+	}
+
+	if len(token) != len(h.debugToken) || subtle.ConstantTimeCompare([]byte(token), []byte(h.debugToken)) != 1 {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+type debugPageData struct {
+	Title       string
+	Ref         instagram.Ref
+	OriginalURL string
+	EmbedURL    string
+	Cache       debugCacheData
+	Fresh       instagram.DebugReport
+	ParsedPost  *instagram.Post
+	Embed       embedData
+	Media       []debugMediaData
+	DumpJSON    string
+}
+
+type debugCacheData struct {
+	Checked bool            `json:"checked"`
+	Hit     bool            `json:"hit"`
+	Error   string          `json:"error,omitempty"`
+	Post    *instagram.Post `json:"post,omitempty"`
+}
+
+type debugMediaData struct {
+	Index       int    `json:"index"`
+	Kind        string `json:"kind"`
+	ImageURL    string `json:"imageUrl,omitempty"`
+	VideoURL    string `json:"videoUrl,omitempty"`
+	PosterURL   string `json:"posterUrl,omitempty"`
+	Width       int    `json:"width,omitempty"`
+	Height      int    `json:"height,omitempty"`
+	RemoteURL   string `json:"remoteUrl,omitempty"`
+	PublicURL   string `json:"publicUrl,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+}
+
+func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref instagram.Ref) {
+	debugger, ok := h.scraper.(PostDebugger)
+	if !ok {
+		http.Error(w, "Debug fetch is not supported by this scraper", http.StatusNotImplemented)
+		return
+	}
+
+	setCacheStatus(r.Context(), "debug")
+	cacheData := h.debugCache(r.Context(), ref)
+	fresh := debugger.DebugFetchPost(r.Context(), ref)
+	parsedPost := bestDebugPost(fresh, cacheData.Post)
+
+	data := debugPageData{
+		Title:       "InstaFix debug",
+		Ref:         ref,
+		OriginalURL: ref.OriginalURL(),
+		EmbedURL:    ref.EmbedURL(),
+		Cache:       cacheData,
+		Fresh:       fresh,
+		ParsedPost:  parsedPost,
+	}
+	if parsedPost != nil {
+		data.Embed = h.embedData(parsedPost)
+		data.Media = h.debugMedia(parsedPost)
+	}
+
+	dump := struct {
+		Ref         instagram.Ref          `json:"ref"`
+		OriginalURL string                 `json:"originalUrl"`
+		EmbedURL    string                 `json:"embedUrl"`
+		Cache       debugCacheData         `json:"cache"`
+		Fresh       instagram.DebugReport  `json:"fresh"`
+		Embed       embedData             `json:"embedData"`
+		Media       []debugMediaData      `json:"media"`
+		ParsedPost  *instagram.Post       `json:"parsedPost,omitempty"`
+	}{
+		Ref:         ref,
+		OriginalURL: data.OriginalURL,
+		EmbedURL:    data.EmbedURL,
+		Cache:       data.Cache,
+		Fresh:       fresh,
+		Embed:       data.Embed,
+		Media:       data.Media,
+		ParsedPost:  parsedPost,
+	}
+	if dumpJSON, err := json.MarshalIndent(dump, "", "  "); err == nil {
+		data.DumpJSON = string(dumpJSON)
+	} else {
+		data.DumpJSON = err.Error()
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.templates.ExecuteTemplate(w, "debug.html", data); err != nil {
+		h.logger.Error("render debug", "shortcode", ref.Shortcode, "media_type", ref.Type, "error", err)
+	}
+}
+
+func (h *Handlers) debugCache(ctx context.Context, ref instagram.Ref) debugCacheData {
+	out := debugCacheData{Checked: true}
+	post, ok, err := h.store.Get(ctx, ref, time.Now())
+	if err != nil {
+		out.Error = err.Error()
+		return out
+	}
+	out.Hit = ok
+	if ok {
+		out.Post = post
+	}
+	return out
+}
+
+func (h *Handlers) debugMedia(post *instagram.Post) []debugMediaData {
+	out := make([]debugMediaData, 0, len(post.Media))
+	for i, item := range post.Media {
+		imageURL, imageType := mediaTarget("image", item)
+		videoURL, videoType := mediaTarget("video", item)
+		remoteURL := firstString(imageURL, videoURL)
+		contentType := firstString(imageType, videoType, item.ContentType)
+		publicURL := ""
+		if imageURL != "" {
+			publicURL = h.publicURL(fmt.Sprintf("/media/%s/%s/%d/image", post.Ref.Type, post.Ref.Shortcode, i+1))
+		}
+		out = append(out, debugMediaData{
+			Index:      i + 1,
+			Kind:       item.Kind,
+			ImageURL:   imageURL,
+			VideoURL:   videoURL,
+			PosterURL:  item.PosterURL,
+			Width:      item.Width,
+			Height:     item.Height,
+			RemoteURL:  remoteURL,
+			PublicURL:  publicURL,
+			ContentType: contentType,
+		})
+	}
+	return out
+}
+
+func bestDebugPost(report instagram.DebugReport, cached *instagram.Post) *instagram.Post {
+	for _, fetch := range report.Fetches {
+		if fetch.ParsedPost != nil {
+			return fetch.ParsedPost
+		}
+	}
+	return cached
+}
+
 func (h *Handlers) renderEmbed(w http.ResponseWriter, post *instagram.Post) {
 	data := h.embedData(post)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -198,20 +397,30 @@ type embedData struct {
 	OriginalURL    string
 	CanonicalURL   string
 	ImageURL       string
+	Images         []embedImage
 	VideoURL       string
 	HasImage       bool
 	HasVideo       bool
 	VideoType      string
+	ThemeColor     string
 	Username       string
 	Shortcode      string
 	MediaType      string
 	ProviderStatus string
 }
 
+type embedImage struct {
+	URL    string
+	Width  int
+	Height int
+}
+
+const maxEmbedImages = 4
+
 func (h *Handlers) embedData(post *instagram.Post) embedData {
 	title := "Instagram post"
 	if post.Username != "" {
-		title = "@" + post.Username + " on Instagram"
+		title = "@" + post.Username
 	}
 
 	description := instagram.CaptionPreview(post.Caption, 280)
@@ -225,6 +434,7 @@ func (h *Handlers) embedData(post *instagram.Post) embedData {
 		Description:    description,
 		OriginalURL:    post.Ref.OriginalURL(),
 		CanonicalURL:   h.publicURL(post.Ref.CanonicalPath()),
+		ThemeColor:     "#d62976",
 		Username:       post.Username,
 		Shortcode:      post.Ref.Shortcode,
 		MediaType:      post.Ref.Type,
@@ -239,18 +449,30 @@ func (h *Handlers) embedData(post *instagram.Post) embedData {
 		return data
 	}
 
+	images := previewImages(post.Media)
+	for _, image := range images {
+		data.Images = append(data.Images, embedImage{
+			URL:    h.publicURL(fmt.Sprintf("/media/%s/%s/%d/image", post.Ref.Type, post.Ref.Shortcode, image.index)),
+			Width:  image.item.Width,
+			Height: image.item.Height,
+		})
+		if len(data.Images) >= maxEmbedImages {
+			break
+		}
+	}
+	if len(data.Images) > 0 {
+		data.ImageURL = data.Images[0].URL
+		data.HasImage = true
+	}
+
 	first := firstPreviewMedia(post.Media)
 	if first == nil {
 		return data
 	}
 
-	if imageCandidate(*first) != "" {
-		data.ImageURL = h.publicURL(fmt.Sprintf("/media/%s/%s/1/image", post.Ref.Type, post.Ref.Shortcode))
-		data.HasImage = true
-	}
-	if first.Kind == "video" && first.URL != "" {
-		data.VideoURL = h.publicURL(fmt.Sprintf("/media/%s/%s/1/video", post.Ref.Type, post.Ref.Shortcode))
-		data.VideoType = firstString(first.ContentType, "video/mp4")
+	if first.item.Kind == "video" && first.item.URL != "" {
+		data.VideoURL = h.publicURL(fmt.Sprintf("/media/%s/%s/%d/video", post.Ref.Type, post.Ref.Shortcode, first.index))
+		data.VideoType = firstString(first.item.ContentType, "video/mp4")
 		data.HasVideo = true
 	}
 
@@ -418,16 +640,32 @@ func copyHeader(dst http.Header, src http.Header, key string) {
 	}
 }
 
-func firstPreviewMedia(media []instagram.MediaItem) *instagram.MediaItem {
+type indexedMedia struct {
+	index int
+	item  instagram.MediaItem
+}
+
+func firstPreviewMedia(media []instagram.MediaItem) *indexedMedia {
 	for i := range media {
 		if imageCandidate(media[i]) != "" {
-			return &media[i]
+			return &indexedMedia{index: i + 1, item: media[i]}
 		}
 	}
 	if len(media) == 0 {
 		return nil
 	}
-	return &media[0]
+	return &indexedMedia{index: 1, item: media[0]}
+}
+
+func previewImages(media []instagram.MediaItem) []indexedMedia {
+	out := make([]indexedMedia, 0, len(media))
+	for i := range media {
+		if imageCandidate(media[i]) == "" {
+			continue
+		}
+		out = append(out, indexedMedia{index: i + 1, item: media[i]})
+	}
+	return out
 }
 
 func imageCandidate(item instagram.MediaItem) string {

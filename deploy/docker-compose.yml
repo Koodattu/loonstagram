@@ -13,6 +13,7 @@ services:
       HTTP_CLIENT_TIMEOUT: ${HTTP_CLIENT_TIMEOUT:-8s}
       MEDIA_PROXY_MODE: ${MEDIA_PROXY_MODE:-redirect}
       ENABLE_INSTAGRAM_GQL_FALLBACK: ${ENABLE_INSTAGRAM_GQL_FALLBACK:-false}
+      DEBUG_TOKEN: ${DEBUG_TOKEN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - app-data:/data

@@ -56,3 +56,52 @@ func TestParseEmbedHTMLUsesMetaFallback(t *testing.T) {
 		t.Fatalf("media = %#v", post.Media)
 	}
 }
+
+func TestParseEmbedHTMLExtractsInstagramAPIItemsCarousel(t *testing.T) {
+	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
+	body := `
+<script>
+  window.__data = {"items":[{
+    "user":{"username":"loonletwow"},
+    "caption":{"text":"The squad coming at you like\n\nPepe: eyes lips eyes"},
+    "carousel_media":[{
+      "media_type":1,
+      "image_versions2":{"candidates":[
+        {"url":"https://scontent.cdninstagram.com/one-small.jpg","width":320,"height":320},
+        {"url":"https://scontent.cdninstagram.com/one-large.jpg","width":1080,"height":1080}
+      ]}
+    },{
+      "media_type":2,
+      "image_versions2":{"candidates":[
+        {"url":"https://scontent.cdninstagram.com/two-poster.jpg","width":720,"height":1280}
+      ]},
+      "video_versions":[
+        {"url":"https://scontent.cdninstagram.com/two-video-low.mp4","width":360,"height":640},
+        {"url":"https://scontent.cdninstagram.com/two-video-high.mp4","width":720,"height":1280}
+      ]
+    }]
+  }]};
+</script>`
+
+	post, err := ParseEmbedHTML(ref, body)
+	if err != nil {
+		t.Fatalf("ParseEmbedHTML() error = %v", err)
+	}
+	if post.Username != "loonletwow" {
+		t.Fatalf("Username = %q", post.Username)
+	}
+	if post.Caption != "The squad coming at you like\n\nPepe: eyes lips eyes" {
+		t.Fatalf("Caption = %q", post.Caption)
+	}
+	if len(post.Media) != 2 {
+		t.Fatalf("Media length = %d", len(post.Media))
+	}
+	if post.Media[0].Kind != "image" || post.Media[0].URL != "https://scontent.cdninstagram.com/one-large.jpg" {
+		t.Fatalf("First media = %#v", post.Media[0])
+	}
+	if post.Media[1].Kind != "video" ||
+		post.Media[1].URL != "https://scontent.cdninstagram.com/two-video-high.mp4" ||
+		post.Media[1].PosterURL != "https://scontent.cdninstagram.com/two-poster.jpg" {
+		t.Fatalf("Second media = %#v", post.Media[1])
+	}
+}

@@ -86,6 +86,7 @@ Optional defaults:
 - `HTTP_CLIENT_TIMEOUT=8s`
 - `MEDIA_PROXY_MODE=redirect`
 - `ENABLE_INSTAGRAM_GQL_FALLBACK=false` (reserved for later fallback support)
+- `DEBUG_TOKEN=` (when set, enables token-gated debug URLs)
 - `LOG_LEVEL=info`
 
 ## Supported Input URLs
@@ -108,5 +109,22 @@ curl -X POST http://localhost:8080/api/convert \
   -d '{"url":"https://www.instagram.com/reel/ABC123xyz/"}'
 curl -A "Discordbot/2.0" "http://localhost:8080/reel/ABC123xyz?preview=1"
 ```
+
+## Debug URLs
+
+Set `DEBUG_TOKEN` to enable diagnostic pages. Without it, debug routes are not registered.
+
+```sh
+DEBUG_TOKEN=replace-with-a-long-random-value docker compose up --build
+```
+
+Then open:
+
+```text
+http://localhost:8080/debug/p/ABC123xyz?token=replace-with-a-long-random-value
+http://localhost:8080/debug?url=https%3A%2F%2Fwww.instagram.com%2Fp%2FABC123xyz%2F&token=replace-with-a-long-random-value
+```
+
+The debug page performs fresh Instagram fetches, shows cache state, raw upstream bodies, extracted JSON blocks, parsed post data, media previews, and fetch or parse errors. Response headers that can carry secrets, such as `Set-Cookie`, are redacted.
 
 Private or login-only Instagram content is not supported. Metadata scraping is best effort and falls back to a minimal preview when Instagram cannot be fetched.

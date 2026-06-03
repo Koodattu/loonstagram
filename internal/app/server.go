@@ -27,6 +27,7 @@ func NewHTTPHandler(opts HTTPHandlerOptions) (http.Handler, error) {
 		CacheNegativeTTL: opts.Config.CacheNegativeTTL,
 		CacheBlockedTTL:  opts.Config.CacheBlockedTTL,
 		MediaProxyMode:   opts.Config.MediaProxyMode,
+		DebugToken:       opts.Config.DebugToken,
 		Store:            opts.Store,
 		Scraper:          opts.Scraper,
 		Logger:           opts.Logger,
