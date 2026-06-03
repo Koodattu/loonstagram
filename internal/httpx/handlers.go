@@ -30,30 +30,38 @@ type PostDebugger interface {
 }
 
 type Options struct {
-	PublicBaseURL    string
-	CacheSuccessTTL  time.Duration
-	CacheNegativeTTL time.Duration
-	CacheBlockedTTL  time.Duration
-	MediaProxyMode   string
-	DebugToken       string
-	Store            *cache.Store
-	Scraper          PostFetcher
-	Logger           *slog.Logger
+	PublicBaseURL       string
+	CacheSuccessTTL     time.Duration
+	CacheNegativeTTL    time.Duration
+	CacheBlockedTTL     time.Duration
+	MediaProxyMode      string
+	DebugToken          string
+	AdminToken          string
+	DiscordClientID     string
+	DiscordClientSecret string
+	DiscordRedirectURL  string
+	Store               *cache.Store
+	Scraper             PostFetcher
+	Logger              *slog.Logger
 }
 
 type Handlers struct {
-	publicBaseURL    string
-	cacheSuccessTTL  time.Duration
-	cacheNegativeTTL time.Duration
-	cacheBlockedTTL  time.Duration
-	mediaProxyMode   string
-	debugToken       string
-	store            *cache.Store
-	scraper          PostFetcher
-	logger           *slog.Logger
-	templates        *template.Template
-	flight           *flight
-	mediaClient      *http.Client
+	publicBaseURL       string
+	cacheSuccessTTL     time.Duration
+	cacheNegativeTTL    time.Duration
+	cacheBlockedTTL     time.Duration
+	mediaProxyMode      string
+	debugToken          string
+	adminToken          string
+	discordClientID     string
+	discordClientSecret string
+	discordRedirectURL  string
+	store               *cache.Store
+	scraper             PostFetcher
+	logger              *slog.Logger
+	templates           *template.Template
+	flight              *flight
+	mediaClient         *http.Client
 }
 
 func NewHandlers(opts Options) (*Handlers, error) {
@@ -74,17 +82,21 @@ func NewHandlers(opts Options) (*Handlers, error) {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
 	return &Handlers{
-		publicBaseURL:    strings.TrimRight(opts.PublicBaseURL, "/"),
-		cacheSuccessTTL:  opts.CacheSuccessTTL,
-		cacheNegativeTTL: opts.CacheNegativeTTL,
-		cacheBlockedTTL:  opts.CacheBlockedTTL,
-		mediaProxyMode:   opts.MediaProxyMode,
-		debugToken:       opts.DebugToken,
-		store:            opts.Store,
-		scraper:          opts.Scraper,
-		logger:           opts.Logger,
-		templates:        templates,
-		flight:           newFlight(),
+		publicBaseURL:       strings.TrimRight(opts.PublicBaseURL, "/"),
+		cacheSuccessTTL:     opts.CacheSuccessTTL,
+		cacheNegativeTTL:    opts.CacheNegativeTTL,
+		cacheBlockedTTL:     opts.CacheBlockedTTL,
+		mediaProxyMode:      opts.MediaProxyMode,
+		debugToken:          opts.DebugToken,
+		adminToken:          opts.AdminToken,
+		discordClientID:     opts.DiscordClientID,
+		discordClientSecret: opts.DiscordClientSecret,
+		discordRedirectURL:  strings.TrimSpace(opts.DiscordRedirectURL),
+		store:               opts.Store,
+		scraper:             opts.Scraper,
+		logger:              opts.Logger,
+		templates:           templates,
+		flight:              newFlight(),
 		mediaClient: &http.Client{
 			Timeout: 20 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -112,6 +124,13 @@ func (h *Handlers) Routes() http.Handler {
 	mux.HandleFunc("GET /tv/{shortcode}", h.canonical(instagram.TypeTV))
 	mux.HandleFunc("GET /media/{type}/{shortcode}/{index}/image", h.media("image"))
 	mux.HandleFunc("GET /media/{type}/{shortcode}/{index}/video", h.media("video"))
+	mux.HandleFunc("GET /api/automation/status", h.automationStatus)
+	mux.HandleFunc("POST /api/automation/config", h.saveAutomationConfig)
+	mux.HandleFunc("POST /api/automation/discord/webhook", h.saveDiscordWebhook)
+	mux.HandleFunc("POST /api/automation/discord/disconnect", h.disconnectDiscordWebhook)
+	mux.HandleFunc("POST /api/automation/test", h.testDiscordWebhook)
+	mux.HandleFunc("GET /oauth/discord/start", h.startDiscordOAuth)
+	mux.HandleFunc("GET /oauth/discord/callback", h.discordOAuthCallback)
 	if h.debugToken != "" {
 		mux.HandleFunc("GET /debug", h.debugFromQuery)
 		mux.HandleFunc("GET /debug/{type}/{shortcode}", h.debugCanonical)
@@ -263,16 +282,18 @@ type debugCacheData struct {
 }
 
 type debugMediaData struct {
-	Index       int    `json:"index"`
-	Kind        string `json:"kind"`
-	ImageURL    string `json:"imageUrl,omitempty"`
-	VideoURL    string `json:"videoUrl,omitempty"`
-	PosterURL   string `json:"posterUrl,omitempty"`
-	Width       int    `json:"width,omitempty"`
-	Height      int    `json:"height,omitempty"`
-	RemoteURL   string `json:"remoteUrl,omitempty"`
-	PublicURL   string `json:"publicUrl,omitempty"`
-	ContentType string `json:"contentType,omitempty"`
+	Index           int    `json:"index"`
+	Kind            string `json:"kind"`
+	ImageURL        string `json:"imageUrl,omitempty"`
+	ImagePreviewURL string `json:"imagePreviewUrl,omitempty"`
+	VideoURL        string `json:"videoUrl,omitempty"`
+	VideoPreviewURL string `json:"videoPreviewUrl,omitempty"`
+	PosterURL       string `json:"posterUrl,omitempty"`
+	Width           int    `json:"width,omitempty"`
+	Height          int    `json:"height,omitempty"`
+	RemoteURL       string `json:"remoteUrl,omitempty"`
+	PublicURL       string `json:"publicUrl,omitempty"`
+	ContentType     string `json:"contentType,omitempty"`
 }
 
 func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref instagram.Ref) {
@@ -302,11 +323,11 @@ func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref insta
 	}
 
 	dump := struct {
-		Ref         instagram.Ref          `json:"ref"`
-		OriginalURL string                 `json:"originalUrl"`
-		EmbedURL    string                 `json:"embedUrl"`
-		Cache       debugCacheData         `json:"cache"`
-		Fresh       instagram.DebugReport  `json:"fresh"`
+		Ref         instagram.Ref         `json:"ref"`
+		OriginalURL string                `json:"originalUrl"`
+		EmbedURL    string                `json:"embedUrl"`
+		Cache       debugCacheData        `json:"cache"`
+		Fresh       instagram.DebugReport `json:"fresh"`
 		Embed       embedData             `json:"embedData"`
 		Media       []debugMediaData      `json:"media"`
 		ParsedPost  *instagram.Post       `json:"parsedPost,omitempty"`
@@ -354,20 +375,28 @@ func (h *Handlers) debugMedia(post *instagram.Post) []debugMediaData {
 		remoteURL := firstString(imageURL, videoURL)
 		contentType := firstString(imageType, videoType, item.ContentType)
 		publicURL := ""
+		imagePreviewURL := ""
 		if imageURL != "" {
 			publicURL = h.publicURL(fmt.Sprintf("/media/%s/%s/%d/image", post.Ref.Type, post.Ref.Shortcode, i+1))
+			imagePreviewURL = publicURL + "?stream=1"
+		}
+		videoPreviewURL := ""
+		if videoURL != "" {
+			videoPreviewURL = h.publicURL(fmt.Sprintf("/media/%s/%s/%d/video", post.Ref.Type, post.Ref.Shortcode, i+1)) + "?stream=1"
 		}
 		out = append(out, debugMediaData{
-			Index:      i + 1,
-			Kind:       item.Kind,
-			ImageURL:   imageURL,
-			VideoURL:   videoURL,
-			PosterURL:  item.PosterURL,
-			Width:      item.Width,
-			Height:     item.Height,
-			RemoteURL:  remoteURL,
-			PublicURL:  publicURL,
-			ContentType: contentType,
+			Index:           i + 1,
+			Kind:            item.Kind,
+			ImageURL:        imageURL,
+			ImagePreviewURL: imagePreviewURL,
+			VideoURL:        videoURL,
+			VideoPreviewURL: videoPreviewURL,
+			PosterURL:       item.PosterURL,
+			Width:           item.Width,
+			Height:          item.Height,
+			RemoteURL:       remoteURL,
+			PublicURL:       publicURL,
+			ContentType:     contentType,
 		})
 	}
 	return out
@@ -510,7 +539,7 @@ func (h *Handlers) media(kind string) http.HandlerFunc {
 		}
 
 		w.Header().Set("Cache-Control", "public, max-age=300")
-		if h.mediaProxyMode == "redirect" {
+		if h.mediaProxyMode == "redirect" && r.URL.Query().Get("stream") != "1" {
 			http.Redirect(w, r, target, http.StatusFound)
 			return
 		}
@@ -521,22 +550,28 @@ func (h *Handlers) media(kind string) http.HandlerFunc {
 
 func (h *Handlers) getOrFetchPost(ctx context.Context, ref instagram.Ref) (*instagram.Post, error) {
 	now := time.Now()
-	if post, ok, err := h.store.Get(ctx, ref, now); ok || err != nil {
-		if ok {
-			setCacheStatus(ctx, "hit")
-		}
+	if post, ok, err := h.store.Get(ctx, ref, now); err != nil {
 		return post, err
+	} else if ok {
+		if !shouldRefreshCachedPost(post) {
+			setCacheStatus(ctx, "hit")
+			return post, nil
+		}
+		setCacheStatus(ctx, "stale")
+	} else {
+		setCacheStatus(ctx, "miss")
 	}
 
-	setCacheStatus(ctx, "miss")
 	key := ref.Type + ":" + ref.Shortcode
 	return h.flight.Do(key, func() (*instagram.Post, error) {
 		now := time.Now()
-		if post, ok, err := h.store.Get(ctx, ref, now); ok || err != nil {
-			if ok {
-				setCacheStatus(ctx, "hit")
-			}
+		if post, ok, err := h.store.Get(ctx, ref, now); err != nil {
 			return post, err
+		} else if ok && !shouldRefreshCachedPost(post) {
+			setCacheStatus(ctx, "hit")
+			return post, nil
+		} else if ok {
+			setCacheStatus(ctx, "stale")
 		}
 
 		start := time.Now()
@@ -589,6 +624,13 @@ func (h *Handlers) getOrFetchPost(ctx context.Context, ref instagram.Ref) (*inst
 		)
 		return post, nil
 	})
+}
+
+func shouldRefreshCachedPost(post *instagram.Post) bool {
+	if post == nil || post.Status != "ok" {
+		return false
+	}
+	return len(post.Media) == 0 || (post.Username == "" && post.Caption == "")
 }
 
 func (h *Handlers) streamMedia(w http.ResponseWriter, r *http.Request, target, fallbackContentType string) {

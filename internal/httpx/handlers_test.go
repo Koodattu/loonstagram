@@ -57,3 +57,52 @@ func TestEmbedDataUsesOriginalIndexForFirstUsablePreview(t *testing.T) {
 		t.Fatalf("ImageURL = %q, HasImage = %v", data.ImageURL, data.HasImage)
 	}
 }
+
+func TestShouldRefreshCachedPost(t *testing.T) {
+	tests := []struct {
+		name string
+		post *instagram.Post
+		want bool
+	}{
+		{
+			name: "complete ok post",
+			post: &instagram.Post{
+				Status:   "ok",
+				Username: "loonletwow",
+				Caption:  "caption",
+				Media:    []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/post.jpg"}},
+			},
+			want: false,
+		},
+		{
+			name: "old ok fallback with no metadata",
+			post: &instagram.Post{
+				Status: "ok",
+				Media:  []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/profile.jpg"}},
+			},
+			want: true,
+		},
+		{
+			name: "ok post without media",
+			post: &instagram.Post{
+				Status:   "ok",
+				Username: "loonletwow",
+				Caption:  "caption",
+			},
+			want: true,
+		},
+		{
+			name: "negative cache",
+			post: &instagram.Post{Status: "blocked"},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldRefreshCachedPost(tt.post); got != tt.want {
+				t.Fatalf("shouldRefreshCachedPost() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"instafix/internal/app"
+	"instafix/internal/automation"
 	"instafix/internal/cache"
+	"instafix/internal/discord"
 	"instafix/internal/instagram"
 )
 
@@ -43,6 +45,22 @@ func main() {
 		Timeout:      cfg.HTTPClientTimeout,
 		MaxBodyBytes: cfg.MaxFetchBytes,
 	})
+	profiles := instagram.NewProfileClient(instagram.ProfileClientConfig{
+		Timeout:      cfg.HTTPClientTimeout,
+		MaxBodyBytes: cfg.MaxFetchBytes,
+		AppID:        cfg.InstagramWebAppID,
+		SessionID:    cfg.InstagramSessionID,
+	})
+	poller := automation.NewPoller(automation.Options{
+		Store:         store,
+		Profiles:      profiles,
+		Discord:       discord.NewClient(cfg.HTTPClientTimeout),
+		PublicBaseURL: cfg.PublicBaseURL,
+		SecretKey:     cfg.AdminToken,
+		Interval:      cfg.AutomationPollInterval,
+		Logger:        logger,
+	})
+	go poller.Run(ctx)
 
 	handler, err := app.NewHTTPHandler(app.HTTPHandlerOptions{
 		Config:  cfg,

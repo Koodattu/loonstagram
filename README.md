@@ -87,6 +87,13 @@ Optional defaults:
 - `MEDIA_PROXY_MODE=redirect`
 - `ENABLE_INSTAGRAM_GQL_FALLBACK=false` (reserved for later fallback support)
 - `DEBUG_TOKEN=` (when set, enables token-gated debug URLs)
+- `ADMIN_TOKEN=` (when set, unlocks automation settings in the web UI)
+- `AUTOMATION_POLL_INTERVAL=5m`
+- `INSTAGRAM_WEB_APP_ID=936619743392459`
+- `INSTAGRAM_SESSION_ID=` (optional self-hosted fallback for Instagram profile polling)
+- `DISCORD_CLIENT_ID=` (optional, enables Discord channel connection through OAuth)
+- `DISCORD_CLIENT_SECRET=` (optional, required with `DISCORD_CLIENT_ID`)
+- `DISCORD_REDIRECT_URL=` (optional, defaults to `{PUBLIC_BASE_URL}/oauth/discord/callback`)
 - `LOG_LEVEL=info`
 
 ## Supported Input URLs
@@ -109,6 +116,18 @@ curl -X POST http://localhost:8080/api/convert \
   -d '{"url":"https://www.instagram.com/reel/ABC123xyz/"}'
 curl -A "Discordbot/2.0" "http://localhost:8080/reel/ABC123xyz?preview=1"
 ```
+
+## Instagram to Discord Automation
+
+Set `ADMIN_TOKEN` before exposing automation settings. The public converter stays open, but automation API writes require the admin token through the web UI.
+Stored Discord webhook URLs are encrypted with a key derived from `ADMIN_TOKEN`, so keep that value stable after connecting Discord.
+
+Discord can be connected in two ways:
+
+- Paste a Discord webhook URL in the admin panel.
+- Configure `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`, then use the Connect Discord button. The Discord app redirect URL must match `DISCORD_REDIRECT_URL` or `{PUBLIC_BASE_URL}/oauth/discord/callback`.
+
+Instagram polling watches a public username through Instagram's web profile endpoint. The first successful poll records the current recent posts without posting them, so only later unseen shortcodes are delivered to Discord. If Instagram blocks the no-login profile endpoint, self-hosted deployments can optionally provide `INSTAGRAM_SESSION_ID`; treat that as a sensitive credential.
 
 ## Debug URLs
 

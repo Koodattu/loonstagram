@@ -9,7 +9,7 @@
   </head>
   <body>
     <main class="shell">
-      <section class="converter" aria-labelledby="page-title">
+      <section class="panel converter" aria-labelledby="page-title">
         <div class="heading">
           <p class="mark">InstaFix</p>
           <h1 id="page-title">Fix Instagram links for Discord</h1>
@@ -31,6 +31,80 @@
             <button id="copy-button" type="button">Copy URL</button>
           </div>
         </div>
+      </section>
+
+      <section class="panel automation" aria-labelledby="automation-title">
+        <div class="heading compact">
+          <p class="mark">Automation</p>
+          <h2 id="automation-title">Post new Instagram links to Discord</h2>
+        </div>
+
+        <form id="admin-form" class="form" novalidate>
+          <label for="admin-token">Admin token</label>
+          <div class="input-row">
+            <input id="admin-token" name="adminToken" type="password" autocomplete="current-password" required>
+            <button id="admin-button" type="submit">Unlock settings</button>
+          </div>
+        </form>
+
+        <div id="automation-panel" class="automation-panel" hidden>
+          <form id="instagram-form" class="settings-block" novalidate>
+            <div class="field-head">
+              <div>
+                <h3>Instagram</h3>
+                <p id="instagram-current" class="meta">Not configured</p>
+              </div>
+              <label class="toggle">
+                <input id="automation-enabled" type="checkbox">
+                <span>Enabled</span>
+              </label>
+            </div>
+            <label for="instagram-username">Username</label>
+            <div class="input-row">
+              <input id="instagram-username" name="instagramUsername" type="text" autocomplete="off" spellcheck="false" placeholder="example.user">
+              <button id="instagram-save" type="submit">Save source</button>
+            </div>
+          </form>
+
+          <form id="discord-form" class="settings-block" novalidate>
+            <div class="field-head">
+              <div>
+                <h3>Discord</h3>
+                <p id="discord-current" class="meta">Not connected</p>
+              </div>
+              <div class="button-row">
+                <a id="discord-oauth" class="button secondary" href="/oauth/discord/start" hidden>Connect Discord</a>
+                <button id="discord-disconnect" class="secondary" type="button" hidden>Disconnect</button>
+              </div>
+            </div>
+            <label for="discord-webhook">Webhook URL</label>
+            <div class="input-row">
+              <input id="discord-webhook" name="webhookUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://discord.com/api/webhooks/...">
+              <button id="discord-save" type="submit">Save webhook</button>
+            </div>
+            <button id="discord-test" class="secondary standalone" type="button">Send test</button>
+          </form>
+
+          <div class="settings-block status-block">
+            <h3>Status</h3>
+            <dl class="status-list">
+              <div>
+                <dt>Last check</dt>
+                <dd id="last-check">Never</dd>
+              </div>
+              <div>
+                <dt>Last post</dt>
+                <dd id="last-post">Never</dd>
+              </div>
+              <div>
+                <dt>Result</dt>
+                <dd id="automation-result">Idle</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+
+        <p id="automation-status" class="status" role="status" aria-live="polite"></p>
       </section>
     </main>
     <script src="/static/app.js" defer></script>
