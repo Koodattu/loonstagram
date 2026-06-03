@@ -119,7 +119,7 @@ func TestEmbedDataUsesOriginalIndexForFirstUsablePreview(t *testing.T) {
 	}
 }
 
-func TestFitImageJPEGUsesDiscordPreviewSize(t *testing.T) {
+func TestPreviewImageJPEGUsesAdaptiveSingleImageSize(t *testing.T) {
 	source := image.NewRGBA(image.Rect(0, 0, 300, 900))
 	for y := 0; y < 900; y++ {
 		for x := 0; x < 300; x++ {
@@ -127,20 +127,20 @@ func TestFitImageJPEGUsesDiscordPreviewSize(t *testing.T) {
 		}
 	}
 
-	body, err := fitImageJPEG(source, discordPreviewWidth, discordPreviewHeight)
+	body, err := previewImageJPEG([]image.Image{source})
 	if err != nil {
-		t.Fatalf("fitImageJPEG() error = %v", err)
+		t.Fatalf("previewImageJPEG() error = %v", err)
 	}
 	decoded, err := jpeg.Decode(bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("jpeg.Decode() error = %v", err)
 	}
-	if decoded.Bounds().Dx() != discordPreviewWidth || decoded.Bounds().Dy() != discordPreviewHeight {
+	if decoded.Bounds().Dx() != 675 || decoded.Bounds().Dy() != discordPreviewMaxSize {
 		t.Fatalf("decoded size = %dx%d", decoded.Bounds().Dx(), decoded.Bounds().Dy())
 	}
 }
 
-func TestFitImagesJPEGUsesDiscordPreviewSizeForCarousel(t *testing.T) {
+func TestPreviewImageJPEGUsesCompactSquareForCarousel(t *testing.T) {
 	sources := []image.Image{
 		solidImage(200, 200, color.RGBA{R: 255, A: 255}),
 		solidImage(200, 400, color.RGBA{G: 255, A: 255}),
@@ -148,15 +148,15 @@ func TestFitImagesJPEGUsesDiscordPreviewSizeForCarousel(t *testing.T) {
 		solidImage(300, 300, color.RGBA{R: 255, G: 255, A: 255}),
 	}
 
-	body, err := fitImagesJPEG(sources, discordPreviewWidth, discordPreviewHeight)
+	body, err := previewImageJPEG(sources)
 	if err != nil {
-		t.Fatalf("fitImagesJPEG() error = %v", err)
+		t.Fatalf("previewImageJPEG() error = %v", err)
 	}
 	decoded, err := jpeg.Decode(bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("jpeg.Decode() error = %v", err)
 	}
-	if decoded.Bounds().Dx() != discordPreviewWidth || decoded.Bounds().Dy() != discordPreviewHeight {
+	if decoded.Bounds().Dx() != discordPreviewMaxSize || decoded.Bounds().Dy() != discordPreviewMaxSize {
 		t.Fatalf("decoded size = %dx%d", decoded.Bounds().Dx(), decoded.Bounds().Dy())
 	}
 }

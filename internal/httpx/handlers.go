@@ -442,9 +442,10 @@ type embedImage struct {
 const maxEmbedImages = 4
 
 const (
-	discordPreviewWidth  = 1200
-	discordPreviewHeight = 630
-	discordPreviewLimit  = 4
+	discordPreviewMaxSize   = 900
+	discordPreviewMinAspect = 0.75
+	discordPreviewMaxAspect = 1.91
+	discordPreviewLimit     = 4
 )
 
 func (h *Handlers) embedData(post *instagram.Post) embedData {
@@ -581,7 +582,7 @@ func (h *Handlers) previewImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := fitImagesJPEG(sources, discordPreviewWidth, discordPreviewHeight)
+	body, err := previewImageJPEG(sources)
 	if err != nil {
 		http.Error(w, "Media fit failed", http.StatusBadGateway)
 		return
@@ -744,6 +745,48 @@ func fitImageJPEG(source image.Image, width, height int) ([]byte, error) {
 	return fitImagesJPEG([]image.Image{source}, width, height)
 }
 
+func previewImageJPEG(sources []image.Image) ([]byte, error) {
+	width, height := previewCanvasSize(sources)
+	return fitImagesJPEG(sources, width, height)
+}
+
+func previewCanvasSize(sources []image.Image) (int, int) {
+	if len(sources) != 1 {
+		return discordPreviewMaxSize, discordPreviewMaxSize
+	}
+
+	bounds := sources[0].Bounds()
+	sourceWidth := bounds.Dx()
+	sourceHeight := bounds.Dy()
+	if sourceWidth <= 0 || sourceHeight <= 0 {
+		return discordPreviewMaxSize, discordPreviewMaxSize
+	}
+
+	aspect := float64(sourceWidth) / float64(sourceHeight)
+	if aspect < discordPreviewMinAspect {
+		aspect = discordPreviewMinAspect
+	}
+	if aspect > discordPreviewMaxAspect {
+		aspect = discordPreviewMaxAspect
+	}
+
+	if aspect >= 1 {
+		width := discordPreviewMaxSize
+		height := int(float64(width)/aspect + 0.5)
+		if height < 1 {
+			height = 1
+		}
+		return width, height
+	}
+
+	height := discordPreviewMaxSize
+	width := int(float64(height)*aspect + 0.5)
+	if width < 1 {
+		width = 1
+	}
+	return width, height
+}
+
 func fitImagesJPEG(sources []image.Image, width, height int) ([]byte, error) {
 	if width <= 0 || height <= 0 {
 		return nil, errors.New("invalid fitted image size")
@@ -776,17 +819,17 @@ func previewCells(count int, bounds image.Rectangle) []image.Rectangle {
 	gap := 8
 	switch count {
 	case 2:
-		mid := bounds.Min.X + (bounds.Dx()-gap)/2
+		mid := bounds.Min.Y + (bounds.Dy()-gap)/2
 		return []image.Rectangle{
-			image.Rect(bounds.Min.X, bounds.Min.Y, mid, bounds.Max.Y),
-			image.Rect(mid+gap, bounds.Min.Y, bounds.Max.X, bounds.Max.Y),
+			image.Rect(bounds.Min.X, bounds.Min.Y, bounds.Max.X, mid),
+			image.Rect(bounds.Min.X, mid+gap, bounds.Max.X, bounds.Max.Y),
 		}
 	case 3:
 		midX := bounds.Min.X + (bounds.Dx()-gap)/2
 		midY := bounds.Min.Y + (bounds.Dy()-gap)/2
 		return []image.Rectangle{
-			image.Rect(bounds.Min.X, bounds.Min.Y, midX, bounds.Max.Y),
-			image.Rect(midX+gap, bounds.Min.Y, bounds.Max.X, midY),
+			image.Rect(bounds.Min.X, bounds.Min.Y, bounds.Max.X, midY),
+			image.Rect(bounds.Min.X, midY+gap, midX, bounds.Max.Y),
 			image.Rect(midX+gap, midY+gap, bounds.Max.X, bounds.Max.Y),
 		}
 	default:
