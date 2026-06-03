@@ -1,11 +1,17 @@
 package httpx
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"log/slog"
 	"net"
@@ -120,6 +126,7 @@ func (h *Handlers) Routes() http.Handler {
 	mux.HandleFunc("GET /tv/{shortcode}", h.canonical(instagram.TypeTV))
 	mux.HandleFunc("GET /media/{type}/{shortcode}/{index}/image", h.media("image"))
 	mux.HandleFunc("GET /media/{type}/{shortcode}/{index}/video", h.media("video"))
+	mux.HandleFunc("GET /preview/{type}/{shortcode}/image", h.previewImage)
 	mux.HandleFunc("GET /api/automation/status", h.automationStatus)
 	mux.HandleFunc("POST /api/automation/config", h.saveAutomationConfig)
 	mux.HandleFunc("POST /api/automation/discord/webhook", h.saveDiscordWebhook)
@@ -434,6 +441,12 @@ type embedImage struct {
 
 const maxEmbedImages = 4
 
+const (
+	discordPreviewWidth  = 1200
+	discordPreviewHeight = 630
+	discordPreviewLimit  = 4
+)
+
 func (h *Handlers) embedData(post *instagram.Post) embedData {
 	title := "Instagram post"
 	if post.Username != "" {
@@ -478,7 +491,7 @@ func (h *Handlers) embedData(post *instagram.Post) embedData {
 		}
 	}
 	if len(data.Images) > 0 {
-		data.ImageURL = data.Images[0].URL
+		data.ImageURL = h.publicURL(fmt.Sprintf("/preview/%s/%s/image", post.Ref.Type, post.Ref.Shortcode))
 		data.HasImage = true
 	}
 
@@ -534,6 +547,50 @@ func (h *Handlers) media(kind string) http.HandlerFunc {
 
 		h.streamMedia(w, r, target, contentType)
 	}
+}
+
+func (h *Handlers) previewImage(w http.ResponseWriter, r *http.Request) {
+	ref, err := instagram.NewRef(r.PathValue("type"), r.PathValue("shortcode"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	post, err := h.getOrFetchPost(r.Context(), ref)
+	if err != nil || post.Status != "ok" {
+		http.NotFound(w, r)
+		return
+	}
+
+	targets := previewImageTargets(post.Media, discordPreviewLimit)
+	if len(targets) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	sources := make([]image.Image, 0, len(targets))
+	for _, target := range targets {
+		source, err := h.fetchRemoteImage(r.Context(), target)
+		if err != nil {
+			continue
+		}
+		sources = append(sources, source)
+	}
+	if len(sources) == 0 {
+		http.Error(w, "Media fetch failed", http.StatusBadGateway)
+		return
+	}
+
+	body, err := fitImagesJPEG(sources, discordPreviewWidth, discordPreviewHeight)
+	if err != nil {
+		http.Error(w, "Media fit failed", http.StatusBadGateway)
+		return
+	}
+
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	_, _ = w.Write(body)
 }
 
 func (h *Handlers) getOrFetchPost(ctx context.Context, ref instagram.Ref) (*instagram.Post, error) {
@@ -658,6 +715,138 @@ func (h *Handlers) streamMedia(w http.ResponseWriter, r *http.Request, target, f
 	_, _ = io.Copy(w, resp.Body)
 }
 
+func (h *Handlers) fetchRemoteImage(ctx context.Context, target string) (image.Image, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Loonstagram/1.0)")
+	req.Header.Set("Accept", "image/jpeg,image/png,*/*;q=0.8")
+
+	resp, err := h.mediaClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("media fetch returned status %d", resp.StatusCode)
+	}
+
+	source, _, err := image.Decode(io.LimitReader(resp.Body, 16*1024*1024))
+	if err != nil {
+		return nil, err
+	}
+	return source, nil
+}
+
+func fitImageJPEG(source image.Image, width, height int) ([]byte, error) {
+	return fitImagesJPEG([]image.Image{source}, width, height)
+}
+
+func fitImagesJPEG(sources []image.Image, width, height int) ([]byte, error) {
+	if width <= 0 || height <= 0 {
+		return nil, errors.New("invalid fitted image size")
+	}
+	if len(sources) == 0 {
+		return nil, errors.New("no images to fit")
+	}
+	if len(sources) > discordPreviewLimit {
+		sources = sources[:discordPreviewLimit]
+	}
+	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{C: color.RGBA{R: 30, G: 31, B: 36, A: 255}}, image.Point{}, draw.Src)
+	cells := previewCells(len(sources), canvas.Bounds())
+	for i, source := range sources {
+		drawImageContained(canvas, source, cells[i])
+	}
+
+	var body bytes.Buffer
+	if err := jpeg.Encode(&body, canvas, &jpeg.Options{Quality: 88}); err != nil {
+		return nil, err
+	}
+	return body.Bytes(), nil
+}
+
+func previewCells(count int, bounds image.Rectangle) []image.Rectangle {
+	if count <= 1 {
+		return []image.Rectangle{bounds}
+	}
+
+	gap := 8
+	switch count {
+	case 2:
+		mid := bounds.Min.X + (bounds.Dx()-gap)/2
+		return []image.Rectangle{
+			image.Rect(bounds.Min.X, bounds.Min.Y, mid, bounds.Max.Y),
+			image.Rect(mid+gap, bounds.Min.Y, bounds.Max.X, bounds.Max.Y),
+		}
+	case 3:
+		midX := bounds.Min.X + (bounds.Dx()-gap)/2
+		midY := bounds.Min.Y + (bounds.Dy()-gap)/2
+		return []image.Rectangle{
+			image.Rect(bounds.Min.X, bounds.Min.Y, midX, bounds.Max.Y),
+			image.Rect(midX+gap, bounds.Min.Y, bounds.Max.X, midY),
+			image.Rect(midX+gap, midY+gap, bounds.Max.X, bounds.Max.Y),
+		}
+	default:
+		midX := bounds.Min.X + (bounds.Dx()-gap)/2
+		midY := bounds.Min.Y + (bounds.Dy()-gap)/2
+		return []image.Rectangle{
+			image.Rect(bounds.Min.X, bounds.Min.Y, midX, midY),
+			image.Rect(midX+gap, bounds.Min.Y, bounds.Max.X, midY),
+			image.Rect(bounds.Min.X, midY+gap, midX, bounds.Max.Y),
+			image.Rect(midX+gap, midY+gap, bounds.Max.X, bounds.Max.Y),
+		}
+	}
+}
+
+func drawImageContained(dst *image.RGBA, source image.Image, target image.Rectangle) {
+	target = target.Intersect(dst.Bounds())
+	if target.Empty() {
+		return
+	}
+	srcBounds := source.Bounds()
+	srcWidth := srcBounds.Dx()
+	srcHeight := srcBounds.Dy()
+	if srcWidth <= 0 || srcHeight <= 0 {
+		return
+	}
+
+	dstWidth := target.Dx()
+	dstHeight := target.Dy()
+	scaleX := float64(dstWidth) / float64(srcWidth)
+	scaleY := float64(dstHeight) / float64(srcHeight)
+	scale := scaleX
+	if scaleY < scale {
+		scale = scaleY
+	}
+	scaledWidth := int(float64(srcWidth)*scale + 0.5)
+	scaledHeight := int(float64(srcHeight)*scale + 0.5)
+	if scaledWidth < 1 {
+		scaledWidth = 1
+	}
+	if scaledHeight < 1 {
+		scaledHeight = 1
+	}
+
+	offsetX := target.Min.X + (dstWidth-scaledWidth)/2
+	offsetY := target.Min.Y + (dstHeight-scaledHeight)/2
+	for y := 0; y < scaledHeight; y++ {
+		sourceY := srcBounds.Min.Y + int(float64(y)*float64(srcHeight)/float64(scaledHeight))
+		if sourceY >= srcBounds.Max.Y {
+			sourceY = srcBounds.Max.Y - 1
+		}
+		for x := 0; x < scaledWidth; x++ {
+			sourceX := srcBounds.Min.X + int(float64(x)*float64(srcWidth)/float64(scaledWidth))
+			if sourceX >= srcBounds.Max.X {
+				sourceX = srcBounds.Max.X - 1
+			}
+			dst.Set(offsetX+x, offsetY+y, source.At(sourceX, sourceY))
+		}
+	}
+}
+
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
@@ -694,6 +883,24 @@ func previewImages(media []instagram.MediaItem) []indexedMedia {
 			continue
 		}
 		out = append(out, indexedMedia{index: i + 1, item: media[i]})
+	}
+	return out
+}
+
+func previewImageTargets(media []instagram.MediaItem, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	out := make([]string, 0, limit)
+	for _, item := range media {
+		target, _ := mediaTarget("image", item)
+		if target == "" || !safeRemoteURL(target) {
+			continue
+		}
+		out = append(out, target)
+		if len(out) >= limit {
+			return out
+		}
 	}
 	return out
 }
