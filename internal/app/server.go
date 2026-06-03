@@ -27,7 +27,6 @@ func NewHTTPHandler(opts HTTPHandlerOptions) (http.Handler, error) {
 		CacheNegativeTTL:    opts.Config.CacheNegativeTTL,
 		CacheBlockedTTL:     opts.Config.CacheBlockedTTL,
 		MediaProxyMode:      opts.Config.MediaProxyMode,
-		DebugToken:          opts.Config.DebugToken,
 		AdminToken:          opts.Config.AdminToken,
 		DiscordClientID:     opts.Config.DiscordClientID,
 		DiscordClientSecret: opts.Config.DiscordClientSecret,

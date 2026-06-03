@@ -2,7 +2,6 @@ package httpx
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,7 +34,6 @@ type Options struct {
 	CacheNegativeTTL    time.Duration
 	CacheBlockedTTL     time.Duration
 	MediaProxyMode      string
-	DebugToken          string
 	AdminToken          string
 	DiscordClientID     string
 	DiscordClientSecret string
@@ -51,7 +49,6 @@ type Handlers struct {
 	cacheNegativeTTL    time.Duration
 	cacheBlockedTTL     time.Duration
 	mediaProxyMode      string
-	debugToken          string
 	adminToken          string
 	discordClientID     string
 	discordClientSecret string
@@ -87,7 +84,6 @@ func NewHandlers(opts Options) (*Handlers, error) {
 		cacheNegativeTTL:    opts.CacheNegativeTTL,
 		cacheBlockedTTL:     opts.CacheBlockedTTL,
 		mediaProxyMode:      opts.MediaProxyMode,
-		debugToken:          opts.DebugToken,
 		adminToken:          opts.AdminToken,
 		discordClientID:     opts.DiscordClientID,
 		discordClientSecret: opts.DiscordClientSecret,
@@ -131,10 +127,8 @@ func (h *Handlers) Routes() http.Handler {
 	mux.HandleFunc("POST /api/automation/test", h.testDiscordWebhook)
 	mux.HandleFunc("GET /oauth/discord/start", h.startDiscordOAuth)
 	mux.HandleFunc("GET /oauth/discord/callback", h.discordOAuthCallback)
-	if h.debugToken != "" {
-		mux.HandleFunc("GET /debug", h.debugFromQuery)
-		mux.HandleFunc("GET /debug/{type}/{shortcode}", h.debugCanonical)
-	}
+	mux.HandleFunc("GET /debug", h.debugFromQuery)
+	mux.HandleFunc("GET /debug/{type}/{shortcode}", h.debugCanonical)
 	return RequestLogger(h.logger, mux)
 }
 
@@ -215,10 +209,6 @@ func (h *Handlers) canonical(mediaType string) http.HandlerFunc {
 }
 
 func (h *Handlers) debugFromQuery(w http.ResponseWriter, r *http.Request) {
-	if !h.authorizeDebug(w, r) {
-		return
-	}
-
 	ref, err := instagram.NormalizeURL(r.URL.Query().Get("url"))
 	if err != nil {
 		http.Error(w, "Unsupported Instagram URL", http.StatusBadRequest)
@@ -228,37 +218,12 @@ func (h *Handlers) debugFromQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) debugCanonical(w http.ResponseWriter, r *http.Request) {
-	if !h.authorizeDebug(w, r) {
-		return
-	}
-
 	ref, err := instagram.NewRef(r.PathValue("type"), r.PathValue("shortcode"))
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 	h.renderDebug(w, r, ref)
-}
-
-func (h *Handlers) authorizeDebug(w http.ResponseWriter, r *http.Request) bool {
-	if h.debugToken == "" {
-		http.NotFound(w, r)
-		return false
-	}
-
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		const bearerPrefix = "Bearer "
-		if value := r.Header.Get("Authorization"); strings.HasPrefix(value, bearerPrefix) {
-			token = strings.TrimSpace(strings.TrimPrefix(value, bearerPrefix))
-		}
-	}
-
-	if len(token) != len(h.debugToken) || subtle.ConstantTimeCompare([]byte(token), []byte(h.debugToken)) != 1 {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return false
-	}
-	return true
 }
 
 type debugPageData struct {

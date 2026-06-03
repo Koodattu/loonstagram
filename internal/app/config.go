@@ -27,7 +27,6 @@ type Config struct {
 	InstagramSessionID             string
 	InstagramWebAppID              string
 	AutomationPollInterval         time.Duration
-	DebugToken                     string
 	AdminToken                     string
 	DiscordClientID                string
 	DiscordClientSecret            string
@@ -51,7 +50,6 @@ func LoadConfig() (Config, error) {
 		InstagramSessionID:             strings.TrimSpace(os.Getenv("INSTAGRAM_SESSION_ID")),
 		InstagramWebAppID:              envString("INSTAGRAM_WEB_APP_ID", "936619743392459"),
 		AutomationPollInterval:         envDuration("AUTOMATION_POLL_INTERVAL", 5*time.Minute),
-		DebugToken:                     strings.TrimSpace(os.Getenv("DEBUG_TOKEN")),
 		AdminToken:                     strings.TrimSpace(os.Getenv("ADMIN_TOKEN")),
 		DiscordClientID:                strings.TrimSpace(os.Getenv("DISCORD_CLIENT_ID")),
 		DiscordClientSecret:            strings.TrimSpace(os.Getenv("DISCORD_CLIENT_SECRET")),
