@@ -2,13 +2,18 @@ package httpx
 
 import (
 	"bytes"
+	"context"
 	"html/template"
 	"image"
 	"image/color"
 	"image/jpeg"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"Loonstagram/internal/cache"
 	"Loonstagram/internal/instagram"
 	"Loonstagram/web"
 )
@@ -119,6 +124,86 @@ func TestEmbedDataUsesOriginalIndexForFirstUsablePreview(t *testing.T) {
 	}
 }
 
+func TestEmbedDataVersionsPreviewImageFromFetchedAt(t *testing.T) {
+	h := &Handlers{publicBaseURL: "https://loonstagram.com"}
+	post := &instagram.Post{
+		Ref:       instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"},
+		Media:     []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/two.jpg"}},
+		Status:    "ok",
+		FetchedAt: time.Unix(1710000000, 0),
+	}
+
+	data := h.embedData(post)
+	if !data.HasImage || data.ImageURL != "https://loonstagram.com/preview/p/ABC123xyz/image?v=1710000000" {
+		t.Fatalf("ImageURL = %q, HasImage = %v", data.ImageURL, data.HasImage)
+	}
+}
+
+func TestRefreshDebugCacheDeletesAndRefetchesPost(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	now := time.Unix(1000, 0)
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       ref,
+		Username:  "old",
+		Status:    "ok",
+		FetchedAt: now,
+		ExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+
+	fetcher := &fakePostFetcher{
+		post: &instagram.Post{
+			Username: "new",
+			Caption:  "caption",
+			Media:    []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/new.jpg"}},
+		},
+	}
+	h, err := NewHandlers(Options{
+		PublicBaseURL:    "https://loonstagram.com",
+		CacheSuccessTTL:  time.Hour,
+		CacheNegativeTTL: time.Minute,
+		CacheBlockedTTL:  time.Minute,
+		Store:            store,
+		Scraper:          fetcher,
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/debug/p/ABC123xyz/refresh", nil)
+	rr := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusSeeOther)
+	}
+	if location := rr.Header().Get("Location"); !strings.HasPrefix(location, "/debug/p/ABC123xyz?") {
+		t.Fatalf("Location = %q", location)
+	}
+	if fetcher.calls != 1 {
+		t.Fatalf("fetch calls = %d, want 1", fetcher.calls)
+	}
+
+	got, ok, err := store.Get(ctx, ref, time.Now())
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("refreshed cache row missing")
+	}
+	if got.Username != "new" || len(got.Media) != 1 {
+		t.Fatalf("cached post = %#v", got)
+	}
+}
+
 func TestPreviewImageJPEGUsesAdaptiveSingleImageSize(t *testing.T) {
 	source := image.NewRGBA(image.Rect(0, 0, 300, 900))
 	for y := 0; y < 900; y++ {
@@ -183,6 +268,25 @@ func solidImage(width, height int, c color.Color) image.Image {
 		}
 	}
 	return img
+}
+
+type fakePostFetcher struct {
+	post  *instagram.Post
+	err   error
+	calls int
+}
+
+func (f *fakePostFetcher) FetchPost(ctx context.Context, ref instagram.Ref) (*instagram.Post, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.post == nil {
+		return &instagram.Post{Ref: ref, Status: "ok"}, nil
+	}
+	post := *f.post
+	post.Ref = ref
+	return &post, nil
 }
 
 func TestShouldRefreshCachedPost(t *testing.T) {

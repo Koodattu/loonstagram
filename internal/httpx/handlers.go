@@ -297,8 +297,8 @@ func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref insta
 			Message: strings.TrimSpace(r.URL.Query().Get("message")),
 			Error:   strings.TrimSpace(r.URL.Query().Get("error")),
 		},
-		Fresh:       fresh,
-		ParsedPost:  parsedPost,
+		Fresh:      fresh,
+		ParsedPost: parsedPost,
 	}
 	if parsedPost != nil {
 		data.Embed = h.embedData(parsedPost)
