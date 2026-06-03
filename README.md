@@ -43,6 +43,12 @@ cp .env.prod.example .env.prod
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
+The production Dockerfile only builds the release binary. Run tests before deploying:
+
+```sh
+go test ./...
+```
+
 5. Check it:
 
 ```sh

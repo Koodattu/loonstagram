@@ -2,7 +2,7 @@ services:
   app:
     build:
       context: ..
-      dockerfile: deploy/Dockerfile
+      dockerfile: deploy/Dockerfile.prod
     environment:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://loonstagram.com}
       DATABASE_PATH: /data/instafix.sqlite
