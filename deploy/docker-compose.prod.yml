@@ -1,0 +1,36 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://loonstagram.com}
+      DATABASE_PATH: /data/instafix.sqlite
+      LISTEN_ADDR: :3000
+      CACHE_SUCCESS_TTL: ${CACHE_SUCCESS_TTL:-6h}
+      CACHE_NEGATIVE_TTL: ${CACHE_NEGATIVE_TTL:-15m}
+      CACHE_BLOCKED_TTL: ${CACHE_BLOCKED_TTL:-5m}
+      HTTP_CLIENT_TIMEOUT: ${HTTP_CLIENT_TIMEOUT:-8s}
+      MEDIA_PROXY_MODE: ${MEDIA_PROXY_MODE:-redirect}
+      ENABLE_INSTAGRAM_GQL_FALLBACK: ${ENABLE_INSTAGRAM_GQL_FALLBACK:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - app-data:/data
+    expose:
+      - "3000"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  app-data:

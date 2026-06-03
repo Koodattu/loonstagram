@@ -1,0 +1,7 @@
+OLD
+.git
+.env
+data
+*.sqlite
+*.sqlite-*
+tmp

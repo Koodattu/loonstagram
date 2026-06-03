@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta property="og:site_name" content="{{.SiteName}}">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="{{.Title}}">
+    <meta property="og:description" content="{{.Description}}">
+    <meta property="og:url" content="{{.OriginalURL}}">
+    {{if .HasImage}}<meta property="og:image" content="{{.ImageURL}}">{{end}}
+    {{if .HasVideo}}<meta property="og:video" content="{{.VideoURL}}">
+    <meta property="og:video:secure_url" content="{{.VideoURL}}">
+    <meta property="og:video:type" content="{{.VideoType}}">{{end}}
+    <meta name="twitter:card" content="{{if .HasVideo}}player{{else}}summary_large_image{{end}}">
+    <meta name="twitter:title" content="{{.Title}}">
+    <meta name="twitter:description" content="{{.Description}}">
+    {{if .HasImage}}<meta name="twitter:image" content="{{.ImageURL}}">{{end}}
+    {{if .HasVideo}}<meta name="twitter:player:stream" content="{{.VideoURL}}">
+    <meta name="twitter:player:stream:content_type" content="{{.VideoType}}">{{end}}
+    <link rel="canonical" href="{{.CanonicalURL}}">
+    <title>{{.Title}}</title>
+  </head>
+  <body>
+    <main>
+      <p><a href="{{.OriginalURL}}">Open on Instagram</a></p>
+    </main>
+  </body>
+</html>

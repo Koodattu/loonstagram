@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>InstaFix</title>
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="converter" aria-labelledby="page-title">
+        <div class="heading">
+          <p class="mark">InstaFix</p>
+          <h1 id="page-title">Fix Instagram links for Discord</h1>
+        </div>
+
+        <form id="convert-form" class="form" novalidate>
+          <label for="instagram-url">Instagram URL</label>
+          <div class="input-row">
+            <input id="instagram-url" name="url" type="url" inputmode="url" autocomplete="off" placeholder="https://www.instagram.com/reel/ABC123xyz/" required>
+            <button id="submit-button" type="submit">Create fixed URL</button>
+          </div>
+          <p id="status" class="status" role="status" aria-live="polite"></p>
+        </form>
+
+        <div id="result-block" class="result" hidden>
+          <label for="fixed-url">Fixed URL</label>
+          <div class="input-row">
+            <input id="fixed-url" type="text" readonly>
+            <button id="copy-button" type="button">Copy URL</button>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
