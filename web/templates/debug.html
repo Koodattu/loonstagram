@@ -121,6 +121,16 @@
         background: #111217;
       }
 
+      .embed-preview {
+        display: block;
+        width: min(100%, 560px);
+        max-height: 520px;
+        margin: 12px 0 0;
+        object-fit: contain;
+        border-radius: 6px;
+        background: #111217;
+      }
+
       .error {
         color: var(--error);
         overflow-wrap: anywhere;
@@ -245,6 +255,7 @@
           <dd><a href="{{.Embed.ImageURL}}">{{.Embed.ImageURL}}</a></dd>
           {{end}}
         </dl>
+        {{if .Embed.HasImage}}<img class="embed-preview" src="{{.Embed.ImageURL}}" alt="Generated embed preview image" loading="lazy">{{end}}
       </section>
       {{end}}
 
@@ -267,7 +278,7 @@
               <dd>{{if .ContentType}}{{.ContentType}}{{else}}unknown{{end}}</dd>
               <dt>Remote</dt>
               <dd>{{if .RemoteURL}}<a href="{{.RemoteURL}}">{{.RemoteURL}}</a>{{else}}none{{end}}</dd>
-              <dt>Public image</dt>
+              <dt>Raw public image</dt>
               <dd>{{if .PublicURL}}<a href="{{.PublicURL}}">{{.PublicURL}}</a>{{else}}none{{end}}</dd>
             </dl>
           </article>
