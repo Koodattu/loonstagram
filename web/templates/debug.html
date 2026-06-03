@@ -207,8 +207,8 @@
         <div class="grid">
           {{range .Media}}
           <article class="media">
-            {{if .ImageURL}}<img src="{{.ImageURL}}" alt="Media {{.Index}} image" loading="lazy">{{end}}
-            {{if .VideoURL}}<video src="{{.VideoURL}}" poster="{{.PosterURL}}" controls preload="metadata"></video>{{end}}
+            {{if .ImagePreviewURL}}<img src="{{.ImagePreviewURL}}" alt="Media {{.Index}} image" loading="lazy">{{end}}
+            {{if .VideoPreviewURL}}<video src="{{.VideoPreviewURL}}" poster="{{.ImagePreviewURL}}" controls preload="metadata"></video>{{end}}
             <dl class="kv">
               <dt>Index</dt>
               <dd>{{.Index}}</dd>
