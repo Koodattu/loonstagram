@@ -362,7 +362,7 @@ func applyMetaFallback(post *Post, meta map[string]string) {
 		post.Username = usernameFromMeta(meta)
 	}
 	if post.Caption == "" {
-		post.Caption = firstString(meta["og:description"], meta["twitter:description"])
+		post.Caption = captionFromMeta(meta)
 	}
 
 	if post.Username == "" && post.Caption == "" {
@@ -594,6 +594,21 @@ func usernameFromMeta(meta map[string]string) string {
 		}
 	}
 	return ""
+}
+
+func captionFromMeta(meta map[string]string) string {
+	value := firstString(meta["og:description"], meta["twitter:description"])
+	before, after, ok := strings.Cut(value, ": ")
+	if !ok {
+		return value
+	}
+	if _, _, hasDatePrefix := strings.Cut(before, " on "); !hasDatePrefix {
+		return value
+	}
+	after = strings.TrimSpace(after)
+	after = strings.TrimPrefix(after, `"`)
+	after = strings.TrimSuffix(after, `"`)
+	return after
 }
 
 func usernameFromText(value string) string {

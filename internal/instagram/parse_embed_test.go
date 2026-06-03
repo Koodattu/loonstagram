@@ -73,8 +73,8 @@ func TestParseEmbedHTMLUsesOriginalPageMetaFallback(t *testing.T) {
 	if post.Username != "loonletwow" {
 		t.Fatalf("Username = %q", post.Username)
 	}
-	if post.Caption == "" {
-		t.Fatalf("Caption is empty")
+	if post.Caption != "Fallback caption" {
+		t.Fatalf("Caption = %q", post.Caption)
 	}
 	if len(post.Media) != 1 || post.Media[0].URL != "https://scontent.cdninstagram.com/post.jpg" {
 		t.Fatalf("media = %#v", post.Media)
