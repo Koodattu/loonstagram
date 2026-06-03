@@ -1,10 +1,13 @@
 package httpx
 
 import (
+	"bytes"
+	"html/template"
 	"strings"
 	"testing"
 
 	"Loonstagram/internal/instagram"
+	"Loonstagram/web"
 )
 
 func TestEmbedDataUsesUsernameCaptionThemeAndMultipleImages(t *testing.T) {
@@ -33,9 +36,6 @@ func TestEmbedDataUsesUsernameCaptionThemeAndMultipleImages(t *testing.T) {
 	if !data.HasImage || data.ImageURL != "https://loonstagram.com/media/p/ABC123xyz/1/image" {
 		t.Fatalf("ImageURL = %q, HasImage = %v", data.ImageURL, data.HasImage)
 	}
-	if data.ImageWidth != 1080 || data.ImageHeight != 1080 {
-		t.Fatalf("Image dimensions = %dx%d", data.ImageWidth, data.ImageHeight)
-	}
 	if len(data.Images) != 2 {
 		t.Fatalf("Images length = %d", len(data.Images))
 	}
@@ -58,6 +58,44 @@ func TestEmbedDataUsesFullCaption(t *testing.T) {
 	data := h.embedData(post)
 	if data.Description != strings.TrimSpace(longCaption) {
 		t.Fatalf("Description was truncated: got %d chars, want %d", len(data.Description), len(strings.TrimSpace(longCaption)))
+	}
+}
+
+func TestEmbedTemplateUsesSingleImageWithoutDimensions(t *testing.T) {
+	templates, err := template.ParseFS(web.FS, "templates/embed.html")
+	if err != nil {
+		t.Fatalf("ParseFS() error = %v", err)
+	}
+	data := embedData{
+		SiteName:    "Loonstagram",
+		Title:       "@loonletwow",
+		Description: "caption",
+		OriginalURL: "https://www.instagram.com/p/ABC123xyz/",
+		ThemeColor:  "#d62976",
+		ImageURL:    "https://loonstagram.com/media/p/ABC123xyz/1/image",
+		Images: []embedImage{
+			{URL: "https://loonstagram.com/media/p/ABC123xyz/1/image", Width: 1080, Height: 1080},
+			{URL: "https://loonstagram.com/media/p/ABC123xyz/2/image", Width: 320, Height: 320},
+		},
+		HasImage: true,
+	}
+
+	var buf bytes.Buffer
+	if err := templates.ExecuteTemplate(&buf, "embed.html", data); err != nil {
+		t.Fatalf("ExecuteTemplate() error = %v", err)
+	}
+	html := buf.String()
+	if got := strings.Count(html, `property="og:image"`); got != 1 {
+		t.Fatalf("og:image count = %d, want 1\n%s", got, html)
+	}
+	if got := strings.Count(html, `name="twitter:image"`); got != 1 {
+		t.Fatalf("twitter:image count = %d, want 1\n%s", got, html)
+	}
+	if strings.Contains(html, "og:image:width") ||
+		strings.Contains(html, "og:image:height") ||
+		strings.Contains(html, "twitter:image:width") ||
+		strings.Contains(html, "twitter:image:height") {
+		t.Fatalf("image dimension metadata should not be emitted\n%s", html)
 	}
 }
 
