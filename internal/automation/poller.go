@@ -14,13 +14,17 @@ import (
 )
 
 const (
-	defaultPollInterval = 5 * time.Minute
-	defaultFetchLimit   = 12
+	defaultPollInterval = 2 * time.Minute
+	defaultFetchLimit   = 24
 	maxPostsPerPoll     = 5
 )
 
 type ProfileFetcher interface {
 	FetchRecentMedia(ctx context.Context, username string, limit int) ([]instagram.RecentMedia, error)
+}
+
+type PostFetcher interface {
+	FetchPost(ctx context.Context, ref instagram.Ref) (*instagram.Post, error)
 }
 
 type DiscordSender interface {
@@ -30,20 +34,24 @@ type DiscordSender interface {
 type Poller struct {
 	store         *cache.Store
 	profiles      ProfileFetcher
+	posts         PostFetcher
 	discord       DiscordSender
 	publicBaseURL string
 	secretKey     string
 	interval      time.Duration
+	cacheTTL      time.Duration
 	logger        *slog.Logger
 }
 
 type Options struct {
 	Store         *cache.Store
 	Profiles      ProfileFetcher
+	Posts         PostFetcher
 	Discord       DiscordSender
 	PublicBaseURL string
 	SecretKey     string
 	Interval      time.Duration
+	CacheTTL      time.Duration
 	Logger        *slog.Logger
 }
 
@@ -59,13 +67,19 @@ func NewPoller(opts Options) *Poller {
 	if opts.Discord == nil {
 		opts.Discord = discord.NewClient(8 * time.Second)
 	}
+	cacheTTL := opts.CacheTTL
+	if cacheTTL <= 0 {
+		cacheTTL = 6 * time.Hour
+	}
 	return &Poller{
 		store:         opts.Store,
 		profiles:      opts.Profiles,
+		posts:         opts.Posts,
 		discord:       opts.Discord,
 		publicBaseURL: strings.TrimRight(opts.PublicBaseURL, "/"),
 		secretKey:     opts.SecretKey,
 		interval:      interval,
+		cacheTTL:      cacheTTL,
 		logger:        logger,
 	}
 }
@@ -131,6 +145,9 @@ func (p *Poller) check(ctx context.Context) error {
 	}
 	if seenCount == 0 {
 		for _, item := range media {
+			if err := p.ensurePostCached(ctx, item, now); err != nil {
+				p.logger.Warn("initial post cache failed", "shortcode", item.Ref.Shortcode, "error", sanitizeError(err))
+			}
 			if err := p.store.MarkInstagramMediaSeen(ctx, seenMedia(settings.InstagramUsername, item, now, time.Time{}, true)); err != nil {
 				return err
 			}
@@ -151,6 +168,10 @@ func (p *Poller) check(ctx context.Context) error {
 		}
 		if seen {
 			continue
+		}
+
+		if err := p.ensurePostCached(ctx, item, now); err != nil {
+			p.logger.Warn("new post cache failed", "shortcode", item.Ref.Shortcode, "error", sanitizeError(err))
 		}
 
 		fixedURL := p.publicBaseURL + item.Ref.CanonicalPath()
@@ -197,6 +218,40 @@ func seenMedia(username string, item instagram.RecentMedia, firstSeenAt, postedA
 	}
 }
 
+func (p *Poller) ensurePostCached(ctx context.Context, item instagram.RecentMedia, now time.Time) error {
+	if p.posts == nil {
+		return nil
+	}
+	if _, ok, err := p.store.Get(ctx, item.Ref, now); err != nil {
+		return err
+	} else if ok {
+		return nil
+	}
+
+	post, err := p.posts.FetchPost(ctx, item.Ref)
+	if err != nil {
+		return err
+	}
+	if post == nil {
+		return nil
+	}
+	post.Ref = item.Ref
+	post.Status = "ok"
+	post.Error = ""
+	if post.OriginalURL == "" {
+		post.OriginalURL = firstString(item.InstagramURL, item.Ref.OriginalURL())
+	}
+	if post.Username == "" {
+		post.Username = item.Username
+	}
+	if post.Caption == "" {
+		post.Caption = item.Caption
+	}
+	post.FetchedAt = now
+	post.ExpiresAt = now.Add(p.cacheTTL)
+	return p.store.Put(ctx, post)
+}
+
 func sanitizeError(err error) string {
 	if err == nil {
 		return ""
@@ -206,4 +261,14 @@ func sanitizeError(err error) string {
 		return value[:180]
 	}
 	return value
+}
+
+func firstString(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -54,10 +54,12 @@ func main() {
 	poller := automation.NewPoller(automation.Options{
 		Store:         store,
 		Profiles:      profiles,
+		Posts:         scraper,
 		Discord:       discord.NewClient(cfg.HTTPClientTimeout),
 		PublicBaseURL: cfg.PublicBaseURL,
 		SecretKey:     cfg.AdminToken,
 		Interval:      cfg.AutomationPollInterval,
+		CacheTTL:      cfg.CacheSuccessTTL,
 		Logger:        logger,
 	})
 	go poller.Run(ctx)
