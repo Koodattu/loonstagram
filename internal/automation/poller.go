@@ -163,6 +163,7 @@ func (p *Poller) check(ctx context.Context) error {
 	}
 
 	posted := 0
+	cachedOnly := 0
 	var postedAt time.Time
 	for i := len(media) - 1; i >= 0; i-- {
 		if posted >= maxPostsPerPoll {
@@ -185,6 +186,7 @@ func (p *Poller) check(ctx context.Context) error {
 			if err := p.store.MarkInstagramMediaSeen(ctx, seenMedia(settings.InstagramUsername, item, now, time.Time{}, false)); err != nil {
 				return err
 			}
+			cachedOnly++
 			continue
 		}
 
@@ -211,6 +213,10 @@ func (p *Poller) check(ctx context.Context) error {
 		status = "Posted 1 Instagram link."
 	} else if posted > 1 {
 		status = fmt.Sprintf("Posted %d Instagram links.", posted)
+	} else if cachedOnly == 1 {
+		status = "Cached 1 new Instagram post. Discord is not connected."
+	} else if cachedOnly > 1 {
+		status = fmt.Sprintf("Cached %d new Instagram posts. Discord is not connected.", cachedOnly)
 	}
 	return p.store.UpdateAutomationRun(ctx, now, postedAt, status, "")
 }
