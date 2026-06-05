@@ -249,7 +249,7 @@ func (h *Handlers) gallery(w http.ResponseWriter, r *http.Request) {
 		source = "automation"
 	}
 
-	posts, err := h.store.ListGalleryPosts(r.Context(), username, 30, time.Now())
+	posts, err := h.store.ListGalleryPosts(r.Context(), username, 120, time.Now())
 	if err != nil {
 		h.logger.Error("load gallery", "error", err)
 		writeJSON(w, http.StatusInternalServerError, galleryResponse{OK: false, Error: "Could not load gallery"})

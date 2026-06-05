@@ -104,17 +104,21 @@ WHERE shortcode = ? AND media_type = ? AND expires_at > ?
 }
 
 func (s *Store) ListGalleryPosts(ctx context.Context, username string, limit int, now time.Time) ([]instagram.Post, error) {
-	if limit <= 0 || limit > 60 {
+	if limit <= 0 || limit > 120 {
 		limit = 30
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-SELECT shortcode, media_type, original_url, username, caption, media_json, status, error, fetched_at, expires_at
+SELECT posts.shortcode, posts.media_type, posts.original_url, posts.username, posts.caption,
+  posts.media_json, posts.status, posts.error, posts.fetched_at, posts.expires_at
 FROM posts
-WHERE status = 'ok'
-  AND expires_at > ?
-  AND (? = '' OR lower(username) = lower(?))
-ORDER BY fetched_at DESC
+LEFT JOIN instagram_seen_media seen
+  ON lower(seen.username) = lower(posts.username)
+  AND seen.shortcode = posts.shortcode
+WHERE posts.status = 'ok'
+  AND posts.expires_at > ?
+  AND (? = '' OR lower(posts.username) = lower(?))
+ORDER BY COALESCE(NULLIF(seen.taken_at, 0), posts.fetched_at) DESC, posts.fetched_at DESC
 LIMIT ?
 `, now.Unix(), username, username, limit)
 	if err != nil {

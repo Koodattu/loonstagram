@@ -70,10 +70,12 @@ a {
   color: var(--ink);
   background: linear-gradient(90deg, var(--orange), var(--pink) 45%, var(--purple));
   background-clip: text;
+  -webkit-background-clip: text;
   font-size: 3.2rem;
-  line-height: 0.9;
+  line-height: 1.06;
   font-weight: 900;
   letter-spacing: -0.03em;
+  padding-bottom: 0.04em;
   text-decoration: none;
   -webkit-text-fill-color: transparent;
 }
@@ -96,7 +98,11 @@ a {
 .link-fixer {
   display: grid;
   gap: 8px;
-  padding-top: 2px;
+  padding-top: 8px;
+}
+
+.link-fixer .input-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
 .input-row {
@@ -470,6 +476,34 @@ button.secondary:hover,
   padding: 28px 0 56px;
 }
 
+.admin-dialog {
+  width: min(100% - 28px, 460px);
+  padding: 0;
+  color: var(--ink);
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.admin-dialog::backdrop {
+  background: oklch(0 0 0 / 0.78);
+}
+
+.admin-dialog .admin-login {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 16px;
+  box-shadow: none;
+}
+
+.admin-dialog h2 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
 .admin-head {
   display: flex;
   align-items: end;
@@ -490,7 +524,6 @@ button.secondary:hover,
   font-weight: 720;
 }
 
-.admin-login,
 .settings-block {
   display: grid;
   gap: 10px;
@@ -498,10 +531,6 @@ button.secondary:hover,
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: inset 0 0 0 1px var(--line-soft);
-}
-
-.admin-login {
-  margin-bottom: 12px;
 }
 
 label {
@@ -515,10 +544,29 @@ label {
   gap: 12px;
 }
 
+.admin-status {
+  margin-top: 10px;
+}
+
 .settings-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 12px;
+}
+
+.instagram-settings {
+  grid-template-columns: minmax(180px, 0.32fr) minmax(0, 1fr);
+  align-items: end;
+}
+
+.instagram-settings .field-head {
+  align-items: center;
+}
+
+.admin-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
 }
 
 .field-head {
@@ -613,6 +661,7 @@ label {
   }
 
   .home-head,
+  .instagram-settings,
   .settings-grid,
   .viewer-post {
     grid-template-columns: 1fr;
@@ -654,6 +703,7 @@ label {
 
 @media (max-width: 560px) {
   .input-row,
+  .admin-row,
   .status-list {
     grid-template-columns: 1fr;
   }

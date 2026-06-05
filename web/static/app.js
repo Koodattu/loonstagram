@@ -1,10 +1,8 @@
 const form = document.querySelector("#convert-form");
 const sourceInput = document.querySelector("#instagram-url");
 const submitButton = document.querySelector("#submit-button");
+const fixAnotherButton = document.querySelector("#fix-another-button");
 const statusText = document.querySelector("#status");
-const resultBlock = document.querySelector("#result-block");
-const fixedInput = document.querySelector("#fixed-url");
-const copyButton = document.querySelector("#copy-button");
 
 const galleryProfile = document.querySelector("#gallery-profile");
 const galleryGrid = document.querySelector("#gallery-grid");
@@ -24,10 +22,12 @@ const viewerFixed = document.querySelector("#viewer-fixed");
 const viewerOriginal = document.querySelector("#viewer-original");
 
 const adminForm = document.querySelector("#admin-form");
+const adminDialog = document.querySelector("#admin-dialog");
 const adminInput = document.querySelector("#admin-token");
 const adminButton = document.querySelector("#admin-button");
 const automationPanel = document.querySelector("#automation-panel");
 const automationStatusText = document.querySelector("#automation-status");
+const adminDialogStatusText = document.querySelector("#admin-dialog-status");
 const instagramForm = document.querySelector("#instagram-form");
 const instagramInput = document.querySelector("#instagram-username");
 const instagramCurrent = document.querySelector("#instagram-current");
@@ -45,12 +45,16 @@ const lastPost = document.querySelector("#last-post");
 const automationResult = document.querySelector("#automation-result");
 
 const adminStorageKey = "Loonstagram.adminToken";
+const savedAdminToken = localStorage.getItem(adminStorageKey);
 
 const galleryState = {
   items: [],
+  tiles: [],
   postIndex: 0,
   mediaIndex: 0,
 };
+
+let fixedURLMode = false;
 
 function setStatus(message, kind = "") {
   if (!statusText) {
@@ -65,15 +69,18 @@ function setStatus(message, kind = "") {
 }
 
 function setAutomationStatus(message, kind = "") {
-  if (!automationStatusText) {
+  const targets = [automationStatusText, adminDialogStatusText].filter(Boolean);
+  if (targets.length === 0) {
     return;
   }
-  automationStatusText.textContent = message;
-  if (kind) {
-    automationStatusText.dataset.kind = kind;
-  } else {
-    delete automationStatusText.dataset.kind;
-  }
+  targets.forEach((target) => {
+    target.textContent = message;
+    if (kind) {
+      target.dataset.kind = kind;
+    } else {
+      delete target.dataset.kind;
+    }
+  });
 }
 
 function setGalleryStatus(message, kind = "") {
@@ -129,6 +136,9 @@ function updateAutomationUI(payload) {
     return;
   }
   automationPanel.hidden = false;
+  if (adminDialog && adminDialog.open) {
+    adminDialog.close();
+  }
   instagramInput.value = payload.instagramUsername || "";
   automationEnabled.checked = Boolean(payload.enabled);
   instagramCurrent.textContent = payload.instagramUsername ? `@${payload.instagramUsername}` : "Not configured";
@@ -162,6 +172,9 @@ async function loadAutomation() {
     if (!response.ok || !payload.ok) {
       setAutomationStatus(payload.error || "Could not load automation settings.", "error");
       automationPanel.hidden = true;
+      if (adminDialog && !adminDialog.open && typeof adminDialog.showModal === "function") {
+        adminDialog.showModal();
+      }
       return;
     }
     localStorage.setItem(adminStorageKey, adminToken());
@@ -172,6 +185,9 @@ async function loadAutomation() {
     }
   } catch {
     setAutomationStatus("Could not load automation settings.", "error");
+    if (adminDialog && !adminDialog.open && typeof adminDialog.showModal === "function") {
+      adminDialog.showModal();
+    }
   } finally {
     adminButton.disabled = false;
   }
@@ -201,8 +217,9 @@ async function loadGallery() {
       galleryProfile.textContent = payload.profile || "loonletwow";
     }
     galleryState.items = Array.isArray(payload.items) ? payload.items : [];
+    galleryState.tiles = galleryTiles(galleryState.items);
     renderGallery();
-    if (galleryState.items.length === 0) {
+    if (galleryState.tiles.length === 0) {
       setGalleryStatus("");
     } else {
       setGalleryStatus("");
@@ -221,32 +238,52 @@ function renderGallery() {
   if (!galleryGrid) {
     return;
   }
-  const cards = galleryState.items.map((item, index) => {
-    const firstMedia = item.media && item.media[0];
-    const imageURL = firstMedia && firstMedia.imageUrl;
+  const cards = galleryState.tiles.map((tile) => {
     const button = document.createElement("button");
     button.className = "gallery-card";
     button.type = "button";
-    button.setAttribute("aria-label", `Open post ${item.shortcode}`);
-    button.addEventListener("click", () => openViewer(index, 0));
+    button.setAttribute("aria-label", `Open post ${tile.post.shortcode}, image ${tile.mediaIndex + 1}`);
+    button.addEventListener("click", () => openViewer(tile.postIndex, tile.mediaIndex));
 
-    if (imageURL) {
+    if (tile.imageURL) {
       const image = document.createElement("img");
-      image.src = imageURL;
-      image.alt = item.caption ? `@${item.username}: ${item.caption}` : `@${item.username} Instagram post`;
+      image.src = tile.imageURL;
+      image.alt = tile.post.caption ? `@${tile.post.username}: ${tile.post.caption}` : `@${tile.post.username} Instagram post`;
       image.loading = "lazy";
       button.append(image);
     }
 
-    if (item.media && item.media.length > 1) {
+    if (tile.media.videoUrl) {
       const badge = document.createElement("span");
       badge.className = "gallery-badge";
-      badge.textContent = item.media.length;
+      badge.textContent = "Video";
       button.append(badge);
     }
     return button;
   });
   galleryGrid.replaceChildren(...cards);
+}
+
+function galleryTiles(items) {
+  const out = [];
+  items.forEach((post, postIndex) => {
+    if (!Array.isArray(post.media)) {
+      return;
+    }
+    post.media.forEach((media, mediaIndex) => {
+      if (!media.imageUrl) {
+        return;
+      }
+      out.push({
+        post,
+        postIndex,
+        media,
+        mediaIndex,
+        imageURL: media.imageUrl,
+      });
+    });
+  });
+  return out;
 }
 
 function openViewer(postIndex, mediaIndex) {
@@ -381,10 +418,14 @@ if (form) {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
+  if (fixedURLMode) {
+    copyFixedURL();
+    return;
+  }
+
   const url = sourceInput.value.trim();
   if (!url) {
     setStatus("Unsupported Instagram URL", "error");
-    resultBlock.hidden = true;
     return;
   }
 
@@ -403,39 +444,55 @@ form.addEventListener("submit", async (event) => {
 
     if (!response.ok || !payload.ok) {
       setStatus(payload.error || "Unsupported Instagram URL", "error");
-      resultBlock.hidden = true;
       return;
     }
 
-    fixedInput.value = payload.url;
-    resultBlock.hidden = false;
-    fixedInput.focus();
-    fixedInput.select();
+    sourceInput.value = payload.url;
+    sourceInput.readOnly = true;
+    sourceInput.focus();
+    sourceInput.select();
+    fixedURLMode = true;
+    submitButton.textContent = "Copy URL";
+    if (fixAnotherButton) {
+      fixAnotherButton.hidden = false;
+    }
     setStatus("Fixed URL created.", "success");
   } catch {
     setStatus("Could not create a fixed URL right now.", "error");
-    resultBlock.hidden = true;
   } finally {
     submitButton.disabled = false;
   }
 });
 }
 
-if (copyButton) {
-copyButton.addEventListener("click", async () => {
-  if (!fixedInput.value) {
+if (fixAnotherButton) {
+  fixAnotherButton.addEventListener("click", () => {
+    fixedURLMode = false;
+    sourceInput.readOnly = false;
+    sourceInput.value = "";
+    submitButton.textContent = "Create fixed URL";
+    fixAnotherButton.hidden = true;
+    setStatus("");
+    sourceInput.focus();
+  });
+}
+
+async function copyFixedURL() {
+  const value = sourceInput && sourceInput.value;
+  if (!value) {
     return;
   }
 
   try {
-    await navigator.clipboard.writeText(fixedInput.value);
+    await navigator.clipboard.writeText(value);
     setStatus("Copied URL.", "success");
   } catch {
-    fixedInput.focus();
-    fixedInput.select();
+    if (sourceInput) {
+      sourceInput.focus();
+      sourceInput.select();
+    }
     setStatus("Select the fixed URL to copy it.", "error");
   }
-});
 }
 
 if (galleryRefresh) {
@@ -491,6 +548,14 @@ adminForm.addEventListener("submit", (event) => {
   event.preventDefault();
   loadAutomation();
 });
+}
+
+if (adminDialog && typeof adminDialog.showModal === "function") {
+  if (!savedAdminToken) {
+    adminDialog.showModal();
+  }
+} else if (adminDialog) {
+  adminDialog.setAttribute("open", "");
 }
 
 if (instagramForm) {
@@ -618,7 +683,6 @@ discordOAuth.addEventListener("click", (event) => {
 });
 }
 
-const savedAdminToken = localStorage.getItem(adminStorageKey);
 if (savedAdminToken && adminInput) {
   adminInput.value = savedAdminToken;
   loadAutomation();
