@@ -89,7 +89,7 @@ func (p *Poller) Run(ctx context.Context) {
 		return
 	}
 
-	timer := time.NewTimer(15 * time.Second)
+	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 	for {
 		select {
