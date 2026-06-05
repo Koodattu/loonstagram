@@ -103,6 +103,62 @@ WHERE shortcode = ? AND media_type = ? AND expires_at > ?
 	}, true, nil
 }
 
+func (s *Store) ListGalleryPosts(ctx context.Context, username string, limit int, now time.Time) ([]instagram.Post, error) {
+	if limit <= 0 || limit > 60 {
+		limit = 30
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT shortcode, media_type, original_url, username, caption, media_json, status, error, fetched_at, expires_at
+FROM posts
+WHERE status = 'ok'
+  AND expires_at > ?
+  AND (? = '' OR lower(username) = lower(?))
+ORDER BY fetched_at DESC
+LIMIT ?
+`, now.Unix(), username, username, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list gallery posts: %w", err)
+	}
+	defer rows.Close()
+
+	posts := make([]instagram.Post, 0, limit)
+	for rows.Next() {
+		var post instagram.Post
+		var mediaJSON string
+		var fetchedAt, expiresAt int64
+		if err := rows.Scan(
+			&post.Ref.Shortcode,
+			&post.Ref.Type,
+			&post.OriginalURL,
+			&post.Username,
+			&post.Caption,
+			&mediaJSON,
+			&post.Status,
+			&post.Error,
+			&fetchedAt,
+			&expiresAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan gallery post: %w", err)
+		}
+		if mediaJSON != "" {
+			if err := json.Unmarshal([]byte(mediaJSON), &post.Media); err != nil {
+				return nil, fmt.Errorf("decode gallery media: %w", err)
+			}
+		}
+		post.FetchedAt = time.Unix(fetchedAt, 0)
+		post.ExpiresAt = time.Unix(expiresAt, 0)
+		if len(post.Media) == 0 {
+			continue
+		}
+		posts = append(posts, post)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read gallery posts: %w", err)
+	}
+	return posts, nil
+}
+
 func (s *Store) Put(ctx context.Context, post *instagram.Post) error {
 	if post == nil {
 		return errors.New("post is nil")

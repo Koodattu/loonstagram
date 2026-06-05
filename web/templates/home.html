@@ -8,39 +8,66 @@
     <link rel="stylesheet" href="/static/app.css">
   </head>
   <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Loonstagram home">
+        <span class="brand-mark" aria-hidden="true">L</span>
+        <span>Loonstagram</span>
+      </a>
+      <nav class="top-actions" aria-label="Primary">
+        <a href="#gallery">Gallery</a>
+        <a href="#admin">Admin</a>
+      </nav>
+    </header>
+
     <main class="shell">
-      <section class="panel converter" aria-labelledby="page-title">
-        <div class="heading">
-          <p class="mark">Loonstagram</p>
+      <section class="converter" aria-labelledby="page-title">
+        <div class="converter-copy">
+          <p class="kicker">Public link fixer</p>
           <h1 id="page-title">Fix Instagram links for Discord</h1>
         </div>
 
-        <form id="convert-form" class="form" novalidate>
+        <form id="convert-form" class="convert-card" novalidate>
           <label for="instagram-url">Instagram URL</label>
           <div class="input-row">
             <input id="instagram-url" name="url" type="url" inputmode="url" autocomplete="off" placeholder="https://www.instagram.com/reel/ABC123xyz/" required>
             <button id="submit-button" type="submit">Create fixed URL</button>
           </div>
           <p id="status" class="status" role="status" aria-live="polite"></p>
-        </form>
 
-        <div id="result-block" class="result" hidden>
-          <label for="fixed-url">Fixed URL</label>
-          <div class="input-row">
-            <input id="fixed-url" type="text" readonly>
-            <button id="copy-button" type="button">Copy URL</button>
+          <div id="result-block" class="result" hidden>
+            <label for="fixed-url">Fixed URL</label>
+            <div class="input-row">
+              <input id="fixed-url" type="text" readonly>
+              <button id="copy-button" type="button">Copy URL</button>
+            </div>
           </div>
-        </div>
+        </form>
       </section>
 
-      <section class="panel automation" aria-labelledby="automation-title">
-        <div class="heading compact">
-          <p class="mark">Automation</p>
-          <h2 id="automation-title">Post new Instagram links to Discord</h2>
+      <section id="gallery" class="gallery-section" aria-labelledby="gallery-title">
+        <div class="section-head">
+          <div>
+            <p class="kicker">Tracked profile</p>
+            <h2 id="gallery-title">@<span id="gallery-profile">loonletwow</span></h2>
+          </div>
+          <button id="gallery-refresh" class="secondary" type="button">Refresh gallery</button>
         </div>
 
-        <form id="admin-form" class="form" novalidate>
-          <label for="admin-token">Admin token</label>
+        <div id="gallery-grid" class="gallery-grid" aria-live="polite"></div>
+        <p id="gallery-status" class="empty-state" role="status">Loading gallery...</p>
+      </section>
+
+      <section id="admin" class="admin-section" aria-labelledby="admin-title">
+        <div class="section-head">
+          <div>
+            <p class="kicker">Private controls</p>
+            <h2 id="admin-title">Automation settings</h2>
+          </div>
+          <p class="admin-note">Password required</p>
+        </div>
+
+        <form id="admin-form" class="admin-login" novalidate>
+          <label for="admin-token">Admin password</label>
           <div class="input-row">
             <input id="admin-token" name="adminToken" type="password" autocomplete="current-password" required>
             <button id="admin-button" type="submit">Unlock settings</button>
@@ -51,7 +78,7 @@
           <form id="instagram-form" class="settings-block" novalidate>
             <div class="field-head">
               <div>
-                <h3>Instagram</h3>
+                <h3>Instagram tracking</h3>
                 <p id="instagram-current" class="meta">Not configured</p>
               </div>
               <label class="toggle">
@@ -59,17 +86,24 @@
                 <span>Enabled</span>
               </label>
             </div>
-            <label for="instagram-username">Username</label>
-            <div class="input-row">
-              <input id="instagram-username" name="instagramUsername" type="text" autocomplete="off" spellcheck="false" placeholder="example.user">
-              <button id="instagram-save" type="submit">Save source</button>
+            <div class="field-grid">
+              <div class="field">
+                <label for="instagram-username">Profile username</label>
+                <input id="instagram-username" name="instagramUsername" type="text" autocomplete="off" spellcheck="false" placeholder="loonletwow">
+              </div>
+              <div class="field readonly-field">
+                <label for="crawler-mode">Crawler mode</label>
+                <input id="crawler-mode" type="text" value="New posts only" readonly>
+              </div>
             </div>
+            <p class="help-text">The current Instagram profile API exposes recent posts, not dependable full-history paging. First successful run seeds existing recent posts and delivers only later unseen posts.</p>
+            <button id="instagram-save" type="submit">Save tracking</button>
           </form>
 
           <form id="discord-form" class="settings-block" novalidate>
             <div class="field-head">
               <div>
-                <h3>Discord</h3>
+                <h3>Discord delivery</h3>
                 <p id="discord-current" class="meta">Not connected</p>
               </div>
               <div class="button-row">
@@ -86,7 +120,7 @@
           </form>
 
           <div class="settings-block status-block">
-            <h3>Status</h3>
+            <h3>Run status</h3>
             <dl class="status-list">
               <div>
                 <dt>Last check</dt>
@@ -107,6 +141,31 @@
         <p id="automation-status" class="status" role="status" aria-live="polite"></p>
       </section>
     </main>
+
+    <dialog id="gallery-viewer" class="viewer" aria-labelledby="viewer-title">
+      <div class="viewer-shell">
+        <button id="viewer-close" class="icon-button viewer-close" type="button" aria-label="Close preview">x</button>
+        <button id="viewer-prev" class="icon-button viewer-edge viewer-prev" type="button" aria-label="Previous post">&lsaquo;</button>
+        <article class="viewer-post">
+          <div class="viewer-media-wrap">
+            <div id="viewer-media" class="viewer-media"></div>
+            <div id="viewer-dots" class="viewer-dots" aria-label="Post media"></div>
+            <button id="viewer-media-prev" class="icon-button viewer-media-nav viewer-media-prev" type="button" aria-label="Previous image">&lsaquo;</button>
+            <button id="viewer-media-next" class="icon-button viewer-media-nav viewer-media-next" type="button" aria-label="Next image">&rsaquo;</button>
+          </div>
+          <aside class="viewer-details">
+            <h3 id="viewer-title">@loonletwow</h3>
+            <p id="viewer-caption"></p>
+            <div class="viewer-links">
+              <a id="viewer-fixed" class="button" href="#" target="_blank" rel="noopener">Open fixed URL</a>
+              <a id="viewer-original" class="button secondary" href="#" target="_blank" rel="noopener">Open Instagram</a>
+            </div>
+          </aside>
+        </article>
+        <button id="viewer-next" class="icon-button viewer-edge viewer-next" type="button" aria-label="Next post">&rsaquo;</button>
+      </div>
+    </dialog>
+
     <script src="/static/app.js" defer></script>
   </body>
 </html>

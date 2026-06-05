@@ -89,3 +89,61 @@ func TestDeleteRemovesSinglePost(t *testing.T) {
 		t.Fatal("deleted row should not be returned")
 	}
 }
+
+func TestListGalleryPostsFiltersUsernameAndRequiresMedia(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Unix(1000, 0)
+	posts := []*instagram.Post{
+		{
+			Ref:      instagram.Ref{Type: instagram.TypePost, Shortcode: "AAA111aaa"},
+			Username: "loonletwow",
+			Media: []instagram.MediaItem{{
+				Kind: "image",
+				URL:  "https://scontent.cdninstagram.com/one.jpg",
+			}},
+			Status:    "ok",
+			FetchedAt: now.Add(2 * time.Minute),
+			ExpiresAt: now.Add(time.Hour),
+		},
+		{
+			Ref:       instagram.Ref{Type: instagram.TypePost, Shortcode: "BBB222bbb"},
+			Username:  "loonletwow",
+			Status:    "ok",
+			FetchedAt: now.Add(time.Minute),
+			ExpiresAt: now.Add(time.Hour),
+		},
+		{
+			Ref:      instagram.Ref{Type: instagram.TypePost, Shortcode: "CCC333ccc"},
+			Username: "other",
+			Media: []instagram.MediaItem{{
+				Kind: "image",
+				URL:  "https://scontent.cdninstagram.com/other.jpg",
+			}},
+			Status:    "ok",
+			FetchedAt: now,
+			ExpiresAt: now.Add(time.Hour),
+		},
+	}
+	for _, post := range posts {
+		if err := store.Put(ctx, post); err != nil {
+			t.Fatalf("Put() error = %v", err)
+		}
+	}
+
+	got, err := store.ListGalleryPosts(ctx, "loonletwow", 30, now)
+	if err != nil {
+		t.Fatalf("ListGalleryPosts() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("gallery posts = %d, want 1: %#v", len(got), got)
+	}
+	if got[0].Ref.Shortcode != "AAA111aaa" {
+		t.Fatalf("shortcode = %q", got[0].Ref.Shortcode)
+	}
+}

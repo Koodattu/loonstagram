@@ -260,6 +260,66 @@ func TestPreviewImageTargetsUsesImageAndVideoPosters(t *testing.T) {
 	}
 }
 
+func TestGalleryUsesConfiguredProfileAndLocalMediaURLs(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	if err := store.SaveAutomationConfig(ctx, "loonletwow", false, time.Now()); err != nil {
+		t.Fatalf("SaveAutomationConfig() error = %v", err)
+	}
+	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	now := time.Unix(1710000000, 0)
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:         ref,
+		OriginalURL: ref.OriginalURL(),
+		Username:    "loonletwow",
+		Caption:     "caption",
+		Media: []instagram.MediaItem{
+			{Kind: "image", URL: "https://scontent.cdninstagram.com/one.jpg", Width: 1080, Height: 1080},
+			{Kind: "video", URL: "https://scontent.cdninstagram.com/two.mp4", PosterURL: "https://scontent.cdninstagram.com/two.jpg"},
+		},
+		Status:    "ok",
+		FetchedAt: now,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+
+	h, err := NewHandlers(Options{
+		PublicBaseURL:    "https://loonstagram.com",
+		CacheSuccessTTL:  time.Hour,
+		CacheNegativeTTL: time.Minute,
+		CacheBlockedTTL:  time.Minute,
+		Store:            store,
+		Scraper:          &fakePostFetcher{},
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/gallery", nil)
+	rr := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"profile":"loonletwow"`) ||
+		!strings.Contains(body, `"canonicalUrl":"https://loonstagram.com/p/ABC123xyz"`) ||
+		!strings.Contains(body, `"imageUrl":"https://loonstagram.com/media/p/ABC123xyz/1/image"`) ||
+		!strings.Contains(body, `"videoUrl":"https://loonstagram.com/media/p/ABC123xyz/2/video"`) {
+		t.Fatalf("gallery response missing expected values:\n%s", body)
+	}
+	if strings.Contains(body, "scontent.cdninstagram.com") {
+		t.Fatalf("gallery response should not expose upstream media URLs:\n%s", body)
+	}
+}
+
 func solidImage(width, height int, c color.Color) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	for y := 0; y < height; y++ {

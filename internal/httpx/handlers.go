@@ -120,6 +120,7 @@ func (h *Handlers) Routes() http.Handler {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(staticFS)))
 	mux.HandleFunc("GET /healthz", h.health)
 	mux.HandleFunc("GET /", h.home)
+	mux.HandleFunc("GET /api/gallery", h.gallery)
 	mux.HandleFunc("POST /api/convert", h.convert)
 	mux.HandleFunc("GET /p/{shortcode}", h.canonical(instagram.TypePost))
 	mux.HandleFunc("GET /reel/{shortcode}", h.canonical(instagram.TypeReel))
@@ -192,6 +193,111 @@ func (h *Handlers) convert(w http.ResponseWriter, r *http.Request) {
 		Type:      ref.Type,
 		Shortcode: ref.Shortcode,
 	})
+}
+
+const defaultGalleryUsername = "loonletwow"
+
+type galleryResponse struct {
+	OK       bool          `json:"ok"`
+	Profile  string        `json:"profile"`
+	Source   string        `json:"source"`
+	Items    []galleryItem `json:"items"`
+	Error    string        `json:"error,omitempty"`
+	Empty    string        `json:"empty,omitempty"`
+	Updated  string        `json:"updated,omitempty"`
+}
+
+type galleryItem struct {
+	Type         string         `json:"type"`
+	Shortcode    string         `json:"shortcode"`
+	Username     string         `json:"username"`
+	Caption      string         `json:"caption"`
+	OriginalURL  string         `json:"originalUrl"`
+	CanonicalURL string         `json:"canonicalUrl"`
+	FetchedAt    string         `json:"fetchedAt,omitempty"`
+	Media        []galleryMedia `json:"media"`
+}
+
+type galleryMedia struct {
+	Kind     string `json:"kind"`
+	ImageURL string `json:"imageUrl,omitempty"`
+	VideoURL string `json:"videoUrl,omitempty"`
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+}
+
+func (h *Handlers) gallery(w http.ResponseWriter, r *http.Request) {
+	username := defaultGalleryUsername
+	source := "default"
+	settings, err := h.store.GetAutomationSettings(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, galleryResponse{OK: false, Error: "Could not load gallery"})
+		return
+	}
+	if settings.InstagramUsername != "" {
+		username = settings.InstagramUsername
+		source = "automation"
+	}
+
+	posts, err := h.store.ListGalleryPosts(r.Context(), username, 30, time.Now())
+	if err != nil {
+		h.logger.Error("load gallery", "error", err)
+		writeJSON(w, http.StatusInternalServerError, galleryResponse{OK: false, Error: "Could not load gallery"})
+		return
+	}
+
+	items := make([]galleryItem, 0, len(posts))
+	for i := range posts {
+		item := h.galleryItem(&posts[i])
+		if len(item.Media) == 0 {
+			continue
+		}
+		items = append(items, item)
+	}
+	empty := ""
+	if len(items) == 0 {
+		empty = "No cached gallery posts yet. Create a fixed URL and let Discord preview it for this profile."
+	}
+	writeJSON(w, http.StatusOK, galleryResponse{
+		OK:      true,
+		Profile: username,
+		Source:  source,
+		Items:   items,
+		Empty:   empty,
+		Updated: formatTime(time.Now()),
+	})
+}
+
+func (h *Handlers) galleryItem(post *instagram.Post) galleryItem {
+	item := galleryItem{
+		Type:         post.Ref.Type,
+		Shortcode:    post.Ref.Shortcode,
+		Username:     post.Username,
+		Caption:      instagram.CleanCaption(post.Caption),
+		OriginalURL:  firstString(post.OriginalURL, post.Ref.OriginalURL()),
+		CanonicalURL: h.publicURL(post.Ref.CanonicalPath()),
+		FetchedAt:    formatTime(post.FetchedAt),
+	}
+	for i, media := range post.Media {
+		imageURL, _ := mediaTarget("image", media)
+		videoURL, _ := mediaTarget("video", media)
+		if imageURL == "" && videoURL == "" {
+			continue
+		}
+		galleryMedia := galleryMedia{
+			Kind:   media.Kind,
+			Width:  media.Width,
+			Height: media.Height,
+		}
+		if imageURL != "" {
+			galleryMedia.ImageURL = h.publicURL(fmt.Sprintf("/media/%s/%s/%d/image", post.Ref.Type, post.Ref.Shortcode, i+1))
+		}
+		if videoURL != "" {
+			galleryMedia.VideoURL = h.publicURL(fmt.Sprintf("/media/%s/%s/%d/video", post.Ref.Type, post.Ref.Shortcode, i+1))
+		}
+		item.Media = append(item.Media, galleryMedia)
+	}
+	return item
 }
 
 func (h *Handlers) canonical(mediaType string) http.HandlerFunc {
