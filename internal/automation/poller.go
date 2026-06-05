@@ -175,6 +175,9 @@ func (p *Poller) check(ctx context.Context) error {
 			return err
 		}
 		if seen {
+			if err := p.ensurePostCached(ctx, item, now); err != nil {
+				p.logger.Warn("seen post cache failed", "shortcode", item.Ref.Shortcode, "error", sanitizeError(err))
+			}
 			continue
 		}
 
