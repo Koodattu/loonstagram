@@ -126,7 +126,7 @@ Discord can be connected in two ways:
 - Paste a Discord webhook URL in the admin panel.
 - Configure `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`, then use the Connect Discord button. The Discord app redirect URL must match `DISCORD_REDIRECT_URL` or `{PUBLIC_BASE_URL}/oauth/discord/callback`.
 
-Instagram polling watches a public username through Instagram's web profile endpoint. The first successful poll fetches and caches the current recent posts for the gallery without posting them to Discord, so only later unseen shortcodes are delivered. If Instagram blocks the no-login profile endpoint, self-hosted deployments can optionally provide `INSTAGRAM_SESSION_ID`; treat that as a sensitive credential.
+Instagram polling watches a public username through Instagram's web profile endpoint. The first successful poll fetches and caches the current recent posts for the gallery without posting them to Discord. Later unseen shortcodes are cached too; they are delivered only when Discord is already connected. If Instagram blocks the no-login profile endpoint, self-hosted deployments can optionally provide `INSTAGRAM_SESSION_ID`; treat that as a sensitive credential.
 
 ## Debug URLs
 
