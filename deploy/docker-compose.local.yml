@@ -6,6 +6,8 @@ services:
     environment:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       DATABASE_PATH: /data/Loonstagram.sqlite
+      MEDIA_CACHE_PATH: /data/media-cache
+      MAX_MEDIA_BYTES: ${MAX_MEDIA_BYTES:-67108864}
       LISTEN_ADDR: :3000
       CACHE_SUCCESS_TTL: ${CACHE_SUCCESS_TTL:-6h}
       CACHE_NEGATIVE_TTL: ${CACHE_NEGATIVE_TTL:-15m}

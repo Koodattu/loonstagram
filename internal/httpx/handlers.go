@@ -23,6 +23,7 @@ import (
 
 	"Loonstagram/internal/cache"
 	"Loonstagram/internal/instagram"
+	"Loonstagram/internal/mediacache"
 	"Loonstagram/web"
 )
 
@@ -45,6 +46,7 @@ type Options struct {
 	DiscordClientSecret string
 	DiscordRedirectURL  string
 	Store               *cache.Store
+	MediaCache          *mediacache.Store
 	Scraper             PostFetcher
 	Logger              *slog.Logger
 }
@@ -60,10 +62,12 @@ type Handlers struct {
 	discordClientSecret string
 	discordRedirectURL  string
 	store               *cache.Store
+	mediaCache          *mediacache.Store
 	scraper             PostFetcher
 	logger              *slog.Logger
 	templates           *template.Template
 	flight              *flight
+	mediaFlight         *mediaFlight
 	mediaClient         *http.Client
 }
 
@@ -95,10 +99,12 @@ func NewHandlers(opts Options) (*Handlers, error) {
 		discordClientSecret: opts.DiscordClientSecret,
 		discordRedirectURL:  strings.TrimSpace(opts.DiscordRedirectURL),
 		store:               opts.Store,
+		mediaCache:          opts.MediaCache,
 		scraper:             opts.Scraper,
 		logger:              opts.Logger,
 		templates:           templates,
 		flight:              newFlight(),
+		mediaFlight:         newMediaFlight(),
 		mediaClient: &http.Client{
 			Timeout: 20 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -267,6 +273,8 @@ func (h *Handlers) gallery(w http.ResponseWriter, r *http.Request) {
 	empty := ""
 	if len(items) == 0 {
 		empty = "No cached gallery posts yet. Create a fixed URL and let Discord preview it for this profile."
+	} else {
+		h.warmGalleryMedia(posts)
 	}
 	writeJSON(w, http.StatusOK, galleryResponse{
 		OK:      true,
@@ -330,6 +338,79 @@ func (h *Handlers) canonical(mediaType string) http.HandlerFunc {
 		}
 		h.renderEmbed(w, post)
 	}
+}
+
+type mediaWarmTarget struct {
+	Key         string
+	Target      string
+	ContentType string
+}
+
+func (h *Handlers) warmGalleryMedia(posts []instagram.Post) {
+	if h.mediaCache == nil {
+		return
+	}
+	targets := make([]mediaWarmTarget, 0, len(posts))
+	seen := make(map[string]bool)
+	for i := range posts {
+		post := &posts[i]
+		if post.Status != "ok" {
+			continue
+		}
+		for mediaIndex, media := range post.Media {
+			target, contentType := mediaTarget("image", media)
+			if target == "" || !safeRemoteURL(target) {
+				continue
+			}
+			key := mediaCacheKey(post.Ref, mediaIndex+1, "image")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			targets = append(targets, mediaWarmTarget{
+				Key:         key,
+				Target:      target,
+				ContentType: contentType,
+			})
+		}
+	}
+	if len(targets) == 0 {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		const workers = 4
+		jobs := make(chan mediaWarmTarget)
+		done := make(chan struct{}, workers)
+		for i := 0; i < workers; i++ {
+			go func() {
+				defer func() { done <- struct{}{} }()
+				for target := range jobs {
+					if err := h.cacheRemoteMedia(ctx, target.Key, target.Target, target.ContentType); err != nil {
+						h.logger.Debug("gallery media warm failed", "key", target.Key, "error", sanitizeLogError(err))
+					}
+				}
+			}()
+		}
+		for _, target := range targets {
+			select {
+			case <-ctx.Done():
+				close(jobs)
+				for i := 0; i < workers; i++ {
+					<-done
+				}
+				return
+			case jobs <- target:
+			}
+		}
+		close(jobs)
+		for i := 0; i < workers; i++ {
+			<-done
+		}
+	}()
 }
 
 func (h *Handlers) debugFromQuery(w http.ResponseWriter, r *http.Request) {
@@ -722,7 +803,28 @@ func (h *Handlers) media(kind string) http.HandlerFunc {
 			return
 		}
 
+		cacheKey := mediaCacheKey(ref, index, kind)
 		w.Header().Set("Cache-Control", "public, max-age=300")
+		if h.mediaCache != nil {
+			if served, err := h.serveCachedMedia(w, r, cacheKey); err != nil {
+				h.logger.Warn("media cache read failed", "key", cacheKey, "error", sanitizeLogError(err))
+			} else if served {
+				return
+			}
+			if err := h.cacheRemoteMedia(r.Context(), cacheKey, target, contentType); err != nil {
+				h.logger.Warn("media cache fill failed", "key", cacheKey, "shortcode", ref.Shortcode, "media_type", ref.Type, "kind", kind, "error", sanitizeLogError(err))
+				http.Error(w, "Media fetch failed", http.StatusBadGateway)
+				return
+			}
+			if served, err := h.serveCachedMedia(w, r, cacheKey); err != nil {
+				h.logger.Warn("media cache serve failed", "key", cacheKey, "error", sanitizeLogError(err))
+			} else if served {
+				return
+			}
+			http.Error(w, "Media cache failed", http.StatusBadGateway)
+			return
+		}
+
 		if h.mediaProxyMode == "redirect" && r.URL.Query().Get("stream") != "1" {
 			http.Redirect(w, r, target, http.StatusFound)
 			return
@@ -730,6 +832,54 @@ func (h *Handlers) media(kind string) http.HandlerFunc {
 
 		h.streamMedia(w, r, target, contentType)
 	}
+}
+
+func (h *Handlers) serveCachedMedia(w http.ResponseWriter, r *http.Request, key string) (bool, error) {
+	file, entry, ok, err := h.mediaCache.Open(key)
+	if err != nil || !ok {
+		return false, err
+	}
+	defer file.Close()
+
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	if entry.ContentType != "" {
+		w.Header().Set("Content-Type", entry.ContentType)
+	}
+	http.ServeContent(w, r, key, entry.CreatedAt, file)
+	return true, nil
+}
+
+func (h *Handlers) cacheRemoteMedia(ctx context.Context, key, target, fallbackContentType string) error {
+	return h.mediaFlight.Do(key, func() error {
+		if file, _, ok, err := h.mediaCache.Open(key); err != nil {
+			return err
+		} else if ok {
+			_ = file.Close()
+			return nil
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+		if err != nil {
+			return fmt.Errorf("create media cache request: %w", err)
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Loonstagram/1.0)")
+		req.Header.Set("Accept", "*/*")
+
+		resp, err := h.mediaClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("fetch upstream media: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return fmt.Errorf("upstream media returned status %d", resp.StatusCode)
+		}
+		contentType := firstString(resp.Header.Get("Content-Type"), fallbackContentType)
+		if _, err := h.mediaCache.Put(ctx, key, contentType, resp.Body); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 func (h *Handlers) previewImage(w http.ResponseWriter, r *http.Request) {
@@ -1152,6 +1302,10 @@ func mediaTarget(kind string, item instagram.MediaItem) (string, string) {
 		}
 	}
 	return "", ""
+}
+
+func mediaCacheKey(ref instagram.Ref, index int, kind string) string {
+	return fmt.Sprintf("%s_%s_%d_%s", ref.Type, ref.Shortcode, index, kind)
 }
 
 func safeRemoteURL(raw string) bool {

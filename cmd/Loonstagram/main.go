@@ -15,6 +15,7 @@ import (
 	"Loonstagram/internal/cache"
 	"Loonstagram/internal/discord"
 	"Loonstagram/internal/instagram"
+	"Loonstagram/internal/mediacache"
 )
 
 func main() {
@@ -40,6 +41,12 @@ func main() {
 	defer store.Close()
 
 	go store.StartCleanup(ctx, 10*time.Minute, logger)
+
+	mediaCache, err := mediacache.Open(cfg.MediaCachePath, cfg.MaxMediaBytes)
+	if err != nil {
+		logger.Error("open media cache", "error", err)
+		os.Exit(1)
+	}
 
 	scraper := instagram.NewClient(instagram.ClientConfig{
 		Timeout:      cfg.HTTPClientTimeout,
@@ -67,6 +74,7 @@ func main() {
 	handler, err := app.NewHTTPHandler(app.HTTPHandlerOptions{
 		Config:  cfg,
 		Store:   store,
+		Media:   mediaCache,
 		Scraper: scraper,
 		Logger:  logger,
 	})

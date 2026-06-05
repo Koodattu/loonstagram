@@ -6,12 +6,14 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
 
 const defaultMaxFetchBytes = 2 * 1024 * 1024
+const defaultMaxMediaBytes = 64 * 1024 * 1024
 
 type Config struct {
 	PublicBaseURL                  string
@@ -33,6 +35,8 @@ type Config struct {
 	DiscordRedirectURL             string
 	LogLevel                       string
 	MaxFetchBytes                  int64
+	MediaCachePath                string
+	MaxMediaBytes                  int64
 }
 
 func LoadConfig() (Config, error) {
@@ -56,6 +60,8 @@ func LoadConfig() (Config, error) {
 		DiscordRedirectURL:             strings.TrimSpace(os.Getenv("DISCORD_REDIRECT_URL")),
 		LogLevel:                       envString("LOG_LEVEL", "info"),
 		MaxFetchBytes:                  envInt64("MAX_FETCH_BYTES", defaultMaxFetchBytes),
+		MediaCachePath:                strings.TrimSpace(os.Getenv("MEDIA_CACHE_PATH")),
+		MaxMediaBytes:                  envInt64("MAX_MEDIA_BYTES", defaultMaxMediaBytes),
 	}
 
 	if cfg.PublicBaseURL == "" {
@@ -75,6 +81,9 @@ func LoadConfig() (Config, error) {
 	if cfg.DatabasePath == "" {
 		return cfg, errors.New("DATABASE_PATH is required")
 	}
+	if cfg.MediaCachePath == "" {
+		cfg.MediaCachePath = filepath.Join(filepath.Dir(cfg.DatabasePath), "media-cache")
+	}
 
 	switch cfg.MediaProxyMode {
 	case "redirect", "stream":
@@ -88,6 +97,9 @@ func LoadConfig() (Config, error) {
 
 	if cfg.MaxFetchBytes <= 0 {
 		return cfg, errors.New("MAX_FETCH_BYTES must be positive")
+	}
+	if cfg.MaxMediaBytes <= 0 {
+		return cfg, errors.New("MAX_MEDIA_BYTES must be positive")
 	}
 	if cfg.AutomationPollInterval <= 0 {
 		return cfg, errors.New("AUTOMATION_POLL_INTERVAL must be positive")

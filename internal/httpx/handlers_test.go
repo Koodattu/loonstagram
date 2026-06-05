@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"Loonstagram/internal/cache"
 	"Loonstagram/internal/instagram"
+	"Loonstagram/internal/mediacache"
 	"Loonstagram/web"
 )
 
@@ -320,6 +322,72 @@ func TestGalleryUsesConfiguredProfileAndLocalMediaURLs(t *testing.T) {
 	}
 }
 
+func TestMediaEndpointCachesUpstreamBytes(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:         ref,
+		OriginalURL: ref.OriginalURL(),
+		Username:    "loonletwow",
+		Media: []instagram.MediaItem{
+			{Kind: "image", URL: "https://scontent.cdninstagram.com/one.jpg", ContentType: "image/jpeg"},
+		},
+		Status:    "ok",
+		FetchedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+
+	mediaCache, err := mediacache.Open(t.TempDir(), 1024)
+	if err != nil {
+		t.Fatalf("mediacache.Open() error = %v", err)
+	}
+	upstreamCalls := 0
+	h, err := NewHandlers(Options{
+		PublicBaseURL:    "https://loonstagram.com",
+		CacheSuccessTTL:  time.Hour,
+		CacheNegativeTTL: time.Minute,
+		CacheBlockedTTL:  time.Minute,
+		Store:            store,
+		MediaCache:       mediaCache,
+		Scraper:          &fakePostFetcher{},
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+	h.mediaClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		upstreamCalls++
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"image/jpeg"}},
+			Body:       io.NopCloser(strings.NewReader("cached image")),
+			Request:    req,
+		}, nil
+	})}
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/media/p/ABC123xyz/1/image", nil)
+		rr := httptest.NewRecorder()
+		h.Routes().ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("request %d status = %d, want %d: %s", i+1, rr.Code, http.StatusOK, rr.Body.String())
+		}
+		if body := rr.Body.String(); body != "cached image" {
+			t.Fatalf("request %d body = %q", i+1, body)
+		}
+	}
+	if upstreamCalls != 1 {
+		t.Fatalf("upstream calls = %d, want 1", upstreamCalls)
+	}
+}
+
 func solidImage(width, height int, c color.Color) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	for y := 0; y < height; y++ {
@@ -328,6 +396,12 @@ func solidImage(width, height int, c color.Color) image.Image {
 		}
 	}
 	return img
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 type fakePostFetcher struct {

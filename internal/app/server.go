@@ -7,11 +7,13 @@ import (
 	"Loonstagram/internal/cache"
 	"Loonstagram/internal/httpx"
 	"Loonstagram/internal/instagram"
+	"Loonstagram/internal/mediacache"
 )
 
 type HTTPHandlerOptions struct {
 	Config  Config
 	Store   *cache.Store
+	Media   *mediacache.Store
 	Scraper *instagram.Client
 	Logger  *slog.Logger
 }
@@ -32,6 +34,7 @@ func NewHTTPHandler(opts HTTPHandlerOptions) (http.Handler, error) {
 		DiscordClientSecret: opts.Config.DiscordClientSecret,
 		DiscordRedirectURL:  opts.Config.DiscordRedirectURL,
 		Store:               opts.Store,
+		MediaCache:          opts.Media,
 		Scraper:             opts.Scraper,
 		Logger:              opts.Logger,
 	})
