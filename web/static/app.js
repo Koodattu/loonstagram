@@ -52,10 +52,12 @@ const galleryState = {
   tiles: [],
   postIndex: 0,
   mediaIndex: 0,
+  viewerDirection: "",
 };
 
 let fixedURLMode = false;
 let statusAnimationTimer = 0;
+let viewerWheelTimer = 0;
 
 function setStatus(message, kind = "") {
   if (!statusText) {
@@ -337,6 +339,7 @@ function openViewer(postIndex, mediaIndex) {
   galleryState.postIndex = clampIndex(postIndex, galleryState.items.length);
   const post = galleryState.items[galleryState.postIndex];
   galleryState.mediaIndex = clampIndex(mediaIndex, post.media.length);
+  galleryState.viewerDirection = "";
   renderViewer();
   document.body.classList.add("viewer-open");
   if (typeof viewer.showModal === "function" && !viewer.open) {
@@ -372,8 +375,14 @@ function renderViewer() {
   viewerFixed.href = post.canonicalUrl || "#";
   viewerOriginal.href = post.originalUrl || "#";
 
+  if (galleryState.viewerDirection) {
+    viewerMedia.dataset.direction = galleryState.viewerDirection;
+  } else {
+    delete viewerMedia.dataset.direction;
+  }
   viewerMedia.replaceChildren(renderViewerMedia(media, post));
   renderViewerDots(post);
+  galleryState.viewerDirection = "";
 
   const hasMultiplePosts = galleryState.items.length > 1;
   viewerPrev.disabled = !hasMultiplePosts;
@@ -387,6 +396,7 @@ function renderViewer() {
 function renderViewerMedia(media, post) {
   if (media && media.videoUrl) {
     const video = document.createElement("video");
+    video.className = "viewer-media-item";
     video.src = media.videoUrl;
     video.poster = media.imageUrl || "";
     video.controls = true;
@@ -397,6 +407,7 @@ function renderViewerMedia(media, post) {
   }
 
   const image = document.createElement("img");
+  image.className = "viewer-media-item";
   image.src = media && media.imageUrl ? media.imageUrl : "";
   image.alt = post.caption ? `@${post.username}: ${post.caption}` : `@${post.username} Instagram image`;
   return image;
@@ -426,6 +437,7 @@ function showRelativePost(offset) {
   }
   galleryState.postIndex = wrapIndex(galleryState.postIndex + offset, galleryState.items.length);
   galleryState.mediaIndex = 0;
+  galleryState.viewerDirection = offset > 0 ? "next" : "prev";
   renderViewer();
 }
 
@@ -435,7 +447,29 @@ function showRelativeMedia(offset) {
     return;
   }
   galleryState.mediaIndex = wrapIndex(galleryState.mediaIndex + offset, post.media.length);
+  galleryState.viewerDirection = offset > 0 ? "next" : "prev";
   renderViewer();
+}
+
+function handleViewerWheel(event) {
+  if (!viewer || !viewer.open) {
+    return;
+  }
+  const strongestDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (Math.abs(strongestDelta) < 18 || viewerWheelTimer) {
+    return;
+  }
+  event.preventDefault();
+  viewerWheelTimer = window.setTimeout(() => {
+    viewerWheelTimer = 0;
+  }, 260);
+  const direction = strongestDelta > 0 ? 1 : -1;
+  const post = galleryState.items[galleryState.postIndex];
+  if (post && post.media.length > 1) {
+    showRelativeMedia(direction);
+  } else {
+    showRelativePost(direction);
+  }
 }
 
 function wrapIndex(index, length) {
@@ -558,6 +592,9 @@ if (viewerMediaPrev) {
 }
 if (viewerMediaNext) {
   viewerMediaNext.addEventListener("click", () => showRelativeMedia(1));
+}
+if (viewerMedia) {
+  viewerMedia.addEventListener("wheel", handleViewerWheel, { passive: false });
 }
 
 if (viewer) {
