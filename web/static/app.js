@@ -55,16 +55,27 @@ const galleryState = {
 };
 
 let fixedURLMode = false;
+let statusAnimationTimer = 0;
 
 function setStatus(message, kind = "") {
   if (!statusText) {
     return;
   }
   statusText.textContent = message;
+  statusText.classList.remove("is-updating");
   if (kind) {
     statusText.dataset.kind = kind;
   } else {
     delete statusText.dataset.kind;
+  }
+  if (message) {
+    window.requestAnimationFrame(() => {
+      statusText.classList.add("is-updating");
+      window.clearTimeout(statusAnimationTimer);
+      statusAnimationTimer = window.setTimeout(() => {
+        statusText.classList.remove("is-updating");
+      }, 180);
+    });
   }
 }
 
@@ -200,6 +211,8 @@ async function loadGallery() {
   if (galleryRefresh) {
     galleryRefresh.disabled = true;
   }
+  galleryGrid.setAttribute("aria-busy", "true");
+  renderGallerySkeleton();
   setGalleryStatus("");
   try {
     const response = await fetch("/api/gallery", {
@@ -210,7 +223,7 @@ async function loadGallery() {
     const payload = await readJSON(response);
     if (!response.ok || !payload.ok) {
       setGalleryStatus(payload.error || "Could not load gallery.", "error");
-      galleryGrid.replaceChildren();
+      renderGalleryEmpty(payload.error || "Could not load gallery.");
       return;
     }
     if (galleryProfile) {
@@ -218,31 +231,48 @@ async function loadGallery() {
     }
     galleryState.items = Array.isArray(payload.items) ? payload.items : [];
     galleryState.tiles = galleryTiles(galleryState.items);
-    renderGallery();
     if (galleryState.tiles.length === 0) {
+      renderGalleryEmpty(payload.empty || "No cached gallery posts yet.");
       setGalleryStatus("");
     } else {
+      renderGallery();
       setGalleryStatus("");
     }
   } catch {
-    galleryGrid.replaceChildren();
+    renderGalleryEmpty("Gallery unavailable.");
     setGalleryStatus("Gallery unavailable.", "error");
   } finally {
+    galleryGrid.removeAttribute("aria-busy");
     if (galleryRefresh) {
       galleryRefresh.disabled = false;
     }
   }
 }
 
+function renderGallerySkeleton(count = 9) {
+  if (!galleryGrid) {
+    return;
+  }
+  const skeletons = Array.from({ length: count }, (_, index) => {
+    const skeleton = document.createElement("div");
+    skeleton.className = "gallery-card is-skeleton";
+    skeleton.setAttribute("aria-hidden", "true");
+    skeleton.style.setProperty("--tile-index", String(Math.min(index, 8)));
+    return skeleton;
+  });
+  galleryGrid.replaceChildren(...skeletons);
+}
+
 function renderGallery() {
   if (!galleryGrid) {
     return;
   }
-  const cards = galleryState.tiles.map((tile) => {
+  const cards = galleryState.tiles.map((tile, index) => {
     const button = document.createElement("button");
     button.className = "gallery-card";
     button.type = "button";
     button.setAttribute("aria-label", `Open post ${tile.post.shortcode}, image ${tile.mediaIndex + 1}`);
+    button.style.setProperty("--tile-index", String(Math.min(index, 8)));
     button.addEventListener("click", () => openViewer(tile.postIndex, tile.mediaIndex));
 
     if (tile.imageURL) {
@@ -262,6 +292,20 @@ function renderGallery() {
     return button;
   });
   galleryGrid.replaceChildren(...cards);
+}
+
+function renderGalleryEmpty(message) {
+  if (!galleryGrid) {
+    return;
+  }
+  const empty = document.createElement("div");
+  empty.className = "gallery-empty";
+  empty.setAttribute("role", "note");
+
+  const text = document.createElement("p");
+  text.textContent = message;
+  empty.append(text);
+  galleryGrid.replaceChildren(empty);
 }
 
 function galleryTiles(items) {
@@ -430,6 +474,7 @@ form.addEventListener("submit", async (event) => {
   }
 
   submitButton.disabled = true;
+  submitButton.setAttribute("aria-busy", "true");
   setStatus("Creating fixed URL...");
 
   try {
@@ -461,6 +506,7 @@ form.addEventListener("submit", async (event) => {
     setStatus("Could not create a fixed URL right now.", "error");
   } finally {
     submitButton.disabled = false;
+    submitButton.removeAttribute("aria-busy");
   }
 });
 }
