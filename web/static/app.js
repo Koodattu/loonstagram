@@ -53,6 +53,9 @@ const galleryState = {
 };
 
 function setStatus(message, kind = "") {
+  if (!statusText) {
+    return;
+  }
   statusText.textContent = message;
   if (kind) {
     statusText.dataset.kind = kind;
@@ -62,6 +65,9 @@ function setStatus(message, kind = "") {
 }
 
 function setAutomationStatus(message, kind = "") {
+  if (!automationStatusText) {
+    return;
+  }
   automationStatusText.textContent = message;
   if (kind) {
     automationStatusText.dataset.kind = kind;
@@ -71,6 +77,9 @@ function setAutomationStatus(message, kind = "") {
 }
 
 function setGalleryStatus(message, kind = "") {
+  if (!galleryStatus) {
+    return;
+  }
   galleryStatus.textContent = message;
   if (kind) {
     galleryStatus.dataset.kind = kind;
@@ -80,6 +89,9 @@ function setGalleryStatus(message, kind = "") {
 }
 
 function adminToken() {
+  if (!adminInput) {
+    return "";
+  }
   return adminInput.value.trim();
 }
 
@@ -113,6 +125,9 @@ function formatTime(value) {
 }
 
 function updateAutomationUI(payload) {
+  if (!automationPanel) {
+    return;
+  }
   automationPanel.hidden = false;
   instagramInput.value = payload.instagramUsername || "";
   automationEnabled.checked = Boolean(payload.enabled);
@@ -152,7 +167,9 @@ async function loadAutomation() {
     localStorage.setItem(adminStorageKey, adminToken());
     updateAutomationUI(payload);
     setAutomationStatus("Settings unlocked.", "success");
-    loadGallery();
+    if (galleryGrid) {
+      loadGallery();
+    }
   } catch {
     setAutomationStatus("Could not load automation settings.", "error");
   } finally {
@@ -161,8 +178,13 @@ async function loadAutomation() {
 }
 
 async function loadGallery() {
-  galleryRefresh.disabled = true;
-  setGalleryStatus("Loading gallery...");
+  if (!galleryGrid) {
+    return;
+  }
+  if (galleryRefresh) {
+    galleryRefresh.disabled = true;
+  }
+  setGalleryStatus("");
   try {
     const response = await fetch("/api/gallery", {
       headers: {
@@ -175,23 +197,30 @@ async function loadGallery() {
       galleryGrid.replaceChildren();
       return;
     }
-    galleryProfile.textContent = payload.profile || "loonletwow";
+    if (galleryProfile) {
+      galleryProfile.textContent = payload.profile || "loonletwow";
+    }
     galleryState.items = Array.isArray(payload.items) ? payload.items : [];
     renderGallery();
     if (galleryState.items.length === 0) {
-      setGalleryStatus(payload.empty || "No gallery posts yet.");
+      setGalleryStatus("");
     } else {
-      setGalleryStatus(`${galleryState.items.length} cached posts`);
+      setGalleryStatus("");
     }
   } catch {
     galleryGrid.replaceChildren();
-    setGalleryStatus("Could not load gallery.", "error");
+    setGalleryStatus("Gallery unavailable.", "error");
   } finally {
-    galleryRefresh.disabled = false;
+    if (galleryRefresh) {
+      galleryRefresh.disabled = false;
+    }
   }
 }
 
 function renderGallery() {
+  if (!galleryGrid) {
+    return;
+  }
   const cards = galleryState.items.map((item, index) => {
     const firstMedia = item.media && item.media[0];
     const imageURL = firstMedia && firstMedia.imageUrl;
@@ -221,7 +250,7 @@ function renderGallery() {
 }
 
 function openViewer(postIndex, mediaIndex) {
-  if (!galleryState.items.length) {
+  if (!viewer || !galleryState.items.length) {
     return;
   }
   galleryState.postIndex = clampIndex(postIndex, galleryState.items.length);
@@ -237,6 +266,9 @@ function openViewer(postIndex, mediaIndex) {
 }
 
 function closeViewer() {
+  if (!viewer) {
+    return;
+  }
   if (viewer.open && typeof viewer.close === "function") {
     viewer.close();
   } else {
@@ -246,6 +278,9 @@ function closeViewer() {
 }
 
 function renderViewer() {
+  if (!viewerMedia) {
+    return;
+  }
   const post = galleryState.items[galleryState.postIndex];
   if (!post) {
     return;
@@ -342,6 +377,7 @@ function clampIndex(index, length) {
   return index;
 }
 
+if (form) {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -383,7 +419,9 @@ form.addEventListener("submit", async (event) => {
     submitButton.disabled = false;
   }
 });
+}
 
+if (copyButton) {
 copyButton.addEventListener("click", async () => {
   if (!fixedInput.value) {
     return;
@@ -398,26 +436,41 @@ copyButton.addEventListener("click", async () => {
     setStatus("Select the fixed URL to copy it.", "error");
   }
 });
+}
 
-galleryRefresh.addEventListener("click", loadGallery);
-viewerClose.addEventListener("click", closeViewer);
-viewerPrev.addEventListener("click", () => showRelativePost(-1));
-viewerNext.addEventListener("click", () => showRelativePost(1));
-viewerMediaPrev.addEventListener("click", () => showRelativeMedia(-1));
-viewerMediaNext.addEventListener("click", () => showRelativeMedia(1));
+if (galleryRefresh) {
+  galleryRefresh.addEventListener("click", loadGallery);
+}
+if (viewerClose) {
+  viewerClose.addEventListener("click", closeViewer);
+}
+if (viewerPrev) {
+  viewerPrev.addEventListener("click", () => showRelativePost(-1));
+}
+if (viewerNext) {
+  viewerNext.addEventListener("click", () => showRelativePost(1));
+}
+if (viewerMediaPrev) {
+  viewerMediaPrev.addEventListener("click", () => showRelativeMedia(-1));
+}
+if (viewerMediaNext) {
+  viewerMediaNext.addEventListener("click", () => showRelativeMedia(1));
+}
 
-viewer.addEventListener("click", (event) => {
-  if (event.target === viewer) {
-    closeViewer();
-  }
-});
+if (viewer) {
+  viewer.addEventListener("click", (event) => {
+    if (event.target === viewer) {
+      closeViewer();
+    }
+  });
 
-viewer.addEventListener("close", () => {
-  document.body.classList.remove("viewer-open");
-});
+  viewer.addEventListener("close", () => {
+    document.body.classList.remove("viewer-open");
+  });
+}
 
 document.addEventListener("keydown", (event) => {
-  if (!viewer.open) {
+  if (!viewer || !viewer.open) {
     return;
   }
   if (event.key === "Escape") {
@@ -433,11 +486,14 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+if (adminForm) {
 adminForm.addEventListener("submit", (event) => {
   event.preventDefault();
   loadAutomation();
 });
+}
 
+if (instagramForm) {
 instagramForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   instagramSave.disabled = true;
@@ -458,14 +514,18 @@ instagramForm.addEventListener("submit", async (event) => {
     }
     updateAutomationUI(payload);
     setAutomationStatus("Instagram tracking saved.", "success");
-    loadGallery();
+    if (galleryGrid) {
+      loadGallery();
+    }
   } catch {
     setAutomationStatus("Could not save Instagram tracking.", "error");
   } finally {
     instagramSave.disabled = false;
   }
 });
+}
 
+if (discordForm) {
 discordForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const webhookUrl = discordWebhook.value.trim();
@@ -496,7 +556,9 @@ discordForm.addEventListener("submit", async (event) => {
     discordSave.disabled = false;
   }
 });
+}
 
+if (discordTest) {
 discordTest.addEventListener("click", async () => {
   discordTest.disabled = true;
   setAutomationStatus("Sending Discord test...");
@@ -518,7 +580,9 @@ discordTest.addEventListener("click", async () => {
     discordTest.disabled = false;
   }
 });
+}
 
+if (discordDisconnect) {
 discordDisconnect.addEventListener("click", async () => {
   discordDisconnect.disabled = true;
   setAutomationStatus("Disconnecting Discord...");
@@ -541,7 +605,9 @@ discordDisconnect.addEventListener("click", async () => {
     discordDisconnect.disabled = false;
   }
 });
+}
 
+if (discordOAuth) {
 discordOAuth.addEventListener("click", (event) => {
   event.preventDefault();
   if (!adminToken()) {
@@ -550,9 +616,10 @@ discordOAuth.addEventListener("click", (event) => {
   }
   window.location.href = `/oauth/discord/start?admin_token=${encodeURIComponent(adminToken())}`;
 });
+}
 
 const savedAdminToken = localStorage.getItem(adminStorageKey);
-if (savedAdminToken) {
+if (savedAdminToken && adminInput) {
   adminInput.value = savedAdminToken;
   loadAutomation();
 }
@@ -560,10 +627,12 @@ if (savedAdminToken) {
 const pageParams = new URLSearchParams(window.location.search);
 if (pageParams.get("discord") === "connected") {
   setAutomationStatus("Discord connected.", "success");
-  window.history.replaceState({}, "", "/");
+  window.history.replaceState({}, "", window.location.pathname);
 } else if (pageParams.get("discord") === "error") {
   setAutomationStatus("Discord connection failed.", "error");
-  window.history.replaceState({}, "", "/");
+  window.history.replaceState({}, "", window.location.pathname);
 }
 
-loadGallery();
+if (galleryGrid) {
+  loadGallery();
+}

@@ -120,6 +120,7 @@ func (h *Handlers) Routes() http.Handler {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(staticFS)))
 	mux.HandleFunc("GET /healthz", h.health)
 	mux.HandleFunc("GET /", h.home)
+	mux.HandleFunc("GET /admin", h.admin)
 	mux.HandleFunc("GET /api/gallery", h.gallery)
 	mux.HandleFunc("POST /api/convert", h.convert)
 	mux.HandleFunc("GET /p/{shortcode}", h.canonical(instagram.TypePost))
@@ -151,6 +152,15 @@ func (h *Handlers) home(w http.ResponseWriter, r *http.Request) {
 		"PublicBaseURL": h.publicBaseURL,
 	}); err != nil {
 		h.logger.Error("render home", "error", err)
+	}
+}
+
+func (h *Handlers) admin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.templates.ExecuteTemplate(w, "admin.html", map[string]string{
+		"PublicBaseURL": h.publicBaseURL,
+	}); err != nil {
+		h.logger.Error("render admin", "error", err)
 	}
 }
 

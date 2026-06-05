@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>Loonstagram admin</title>
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body class="page-admin">
+    <main class="admin-shell">
+      <header class="admin-head">
+        <a class="wordmark admin-wordmark" href="/" aria-label="Loonstagram home">Loonstagram</a>
+        <h1>Admin</h1>
+      </header>
+
+      <form id="admin-form" class="admin-login" novalidate>
+        <label for="admin-token">Password</label>
+        <div class="input-row">
+          <input id="admin-token" name="adminToken" type="password" autocomplete="current-password" required>
+          <button id="admin-button" type="submit">Unlock</button>
+        </div>
+      </form>
+
+      <div id="automation-panel" class="automation-panel" hidden>
+        <div class="settings-grid">
+          <form id="instagram-form" class="settings-block" novalidate>
+            <div class="field-head">
+              <div>
+                <h2>Instagram</h2>
+                <p id="instagram-current" class="meta">Not configured</p>
+              </div>
+              <label class="toggle">
+                <input id="automation-enabled" type="checkbox">
+                <span>Enabled</span>
+              </label>
+            </div>
+
+            <div class="field">
+              <label for="instagram-username">Profile username</label>
+              <input id="instagram-username" name="instagramUsername" type="text" autocomplete="off" spellcheck="false" placeholder="loonletwow">
+            </div>
+
+            <div class="field">
+              <label for="crawler-mode">Crawler mode</label>
+              <input id="crawler-mode" type="text" value="New posts only" readonly>
+            </div>
+
+            <p class="help-text">The current profile endpoint is suitable for recent-post polling. First run seeds existing recent posts; later unseen posts are delivered.</p>
+            <button id="instagram-save" type="submit">Save tracking</button>
+          </form>
+
+          <form id="discord-form" class="settings-block" novalidate>
+            <div class="field-head">
+              <div>
+                <h2>Discord</h2>
+                <p id="discord-current" class="meta">Not connected</p>
+              </div>
+              <div class="button-row">
+                <a id="discord-oauth" class="button secondary" href="/oauth/discord/start" hidden>Connect OAuth</a>
+                <button id="discord-disconnect" class="secondary" type="button" hidden>Disconnect</button>
+              </div>
+            </div>
+
+            <label for="discord-webhook">Webhook URL</label>
+            <div class="input-row">
+              <input id="discord-webhook" name="webhookUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://discord.com/api/webhooks/...">
+              <button id="discord-save" type="submit">Save</button>
+            </div>
+            <button id="discord-test" class="secondary standalone" type="button">Send test</button>
+          </form>
+        </div>
+
+        <section class="settings-block status-block" aria-labelledby="run-status-title">
+          <h2 id="run-status-title">Status</h2>
+          <dl class="status-list">
+            <div>
+              <dt>Last check</dt>
+              <dd id="last-check">Never</dd>
+            </div>
+            <div>
+              <dt>Last post</dt>
+              <dd id="last-post">Never</dd>
+            </div>
+            <div>
+              <dt>Result</dt>
+              <dd id="automation-result">Idle</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+
+      <p id="automation-status" class="status" role="status" aria-live="polite"></p>
+    </main>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

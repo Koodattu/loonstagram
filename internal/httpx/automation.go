@@ -214,39 +214,39 @@ func (h *Handlers) startDiscordOAuth(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) discordOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	if !h.discordOAuthConfigured() {
-		http.Redirect(w, r, "/?discord=error", http.StatusFound)
+		http.Redirect(w, r, "/admin?discord=error", http.StatusFound)
 		return
 	}
 	state := r.URL.Query().Get("state")
 	code := r.URL.Query().Get("code")
 	if state == "" || code == "" {
-		http.Redirect(w, r, "/?discord=error", http.StatusFound)
+		http.Redirect(w, r, "/admin?discord=error", http.StatusFound)
 		return
 	}
 	ok, err := h.store.ConsumeDiscordOAuthState(r.Context(), state, time.Now())
 	if err != nil || !ok {
-		http.Redirect(w, r, "/?discord=error", http.StatusFound)
+		http.Redirect(w, r, "/admin?discord=error", http.StatusFound)
 		return
 	}
 
 	webhook, err := h.exchangeDiscordCode(r, code)
 	if err != nil {
 		h.logger.Warn("discord oauth exchange failed", "error", sanitizeLogError(err))
-		http.Redirect(w, r, "/?discord=error", http.StatusFound)
+		http.Redirect(w, r, "/admin?discord=error", http.StatusFound)
 		return
 	}
 	webhook.URL, err = secret.SealString(h.adminToken, webhook.URL)
 	if err != nil {
 		h.logger.Error("protect discord oauth webhook", "error", err)
-		http.Redirect(w, r, "/?discord=error", http.StatusFound)
+		http.Redirect(w, r, "/admin?discord=error", http.StatusFound)
 		return
 	}
 	if err := h.store.SetDiscordWebhook(r.Context(), webhook, time.Now()); err != nil {
 		h.logger.Error("save discord oauth webhook", "error", err)
-		http.Redirect(w, r, "/?discord=error", http.StatusFound)
+		http.Redirect(w, r, "/admin?discord=error", http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, "/?discord=connected", http.StatusFound)
+	http.Redirect(w, r, "/admin?discord=connected", http.StatusFound)
 }
 
 func (h *Handlers) exchangeDiscordCode(r *http.Request, code string) (cache.DiscordWebhook, error) {

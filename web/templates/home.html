@@ -7,138 +7,32 @@
     <title>Loonstagram</title>
     <link rel="stylesheet" href="/static/app.css">
   </head>
-  <body>
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="Loonstagram home">
-        <span class="brand-mark" aria-hidden="true">L</span>
-        <span>Loonstagram</span>
-      </a>
-      <nav class="top-actions" aria-label="Primary">
-        <a href="#gallery">Gallery</a>
-        <a href="#admin">Admin</a>
-      </nav>
-    </header>
+  <body class="page-home">
+    <main class="home-shell">
+      <header class="home-head">
+        <a class="wordmark" href="/" aria-label="Loonstagram home">Loonstagram</a>
 
-    <main class="shell">
-      <section class="converter" aria-labelledby="page-title">
-        <div class="converter-copy">
-          <p class="kicker">Public link fixer</p>
-          <h1 id="page-title">Fix Instagram links for Discord</h1>
-        </div>
-
-        <form id="convert-form" class="convert-card" novalidate>
-          <label for="instagram-url">Instagram URL</label>
+        <form id="convert-form" class="link-fixer" novalidate>
+          <label class="sr-only" for="instagram-url">Instagram URL</label>
           <div class="input-row">
-            <input id="instagram-url" name="url" type="url" inputmode="url" autocomplete="off" placeholder="https://www.instagram.com/reel/ABC123xyz/" required>
+            <input id="instagram-url" name="url" type="url" inputmode="url" autocomplete="off" placeholder="Instagram URL" required>
             <button id="submit-button" type="submit">Create fixed URL</button>
           </div>
           <p id="status" class="status" role="status" aria-live="polite"></p>
 
-          <div id="result-block" class="result" hidden>
-            <label for="fixed-url">Fixed URL</label>
+          <div id="result-block" class="result compact-result" hidden>
+            <label class="sr-only" for="fixed-url">Fixed URL</label>
             <div class="input-row">
               <input id="fixed-url" type="text" readonly>
               <button id="copy-button" type="button">Copy URL</button>
             </div>
           </div>
         </form>
-      </section>
+      </header>
 
-      <section id="gallery" class="gallery-section" aria-labelledby="gallery-title">
-        <div class="section-head">
-          <div>
-            <p class="kicker">Tracked profile</p>
-            <h2 id="gallery-title">@<span id="gallery-profile">loonletwow</span></h2>
-          </div>
-          <button id="gallery-refresh" class="secondary" type="button">Refresh gallery</button>
-        </div>
-
+      <section class="gallery-section" aria-label="Loonstagram gallery">
         <div id="gallery-grid" class="gallery-grid" aria-live="polite"></div>
-        <p id="gallery-status" class="empty-state" role="status">Loading gallery...</p>
-      </section>
-
-      <section id="admin" class="admin-section" aria-labelledby="admin-title">
-        <div class="section-head">
-          <div>
-            <p class="kicker">Private controls</p>
-            <h2 id="admin-title">Automation settings</h2>
-          </div>
-          <p class="admin-note">Password required</p>
-        </div>
-
-        <form id="admin-form" class="admin-login" novalidate>
-          <label for="admin-token">Admin password</label>
-          <div class="input-row">
-            <input id="admin-token" name="adminToken" type="password" autocomplete="current-password" required>
-            <button id="admin-button" type="submit">Unlock settings</button>
-          </div>
-        </form>
-
-        <div id="automation-panel" class="automation-panel" hidden>
-          <form id="instagram-form" class="settings-block" novalidate>
-            <div class="field-head">
-              <div>
-                <h3>Instagram tracking</h3>
-                <p id="instagram-current" class="meta">Not configured</p>
-              </div>
-              <label class="toggle">
-                <input id="automation-enabled" type="checkbox">
-                <span>Enabled</span>
-              </label>
-            </div>
-            <div class="field-grid">
-              <div class="field">
-                <label for="instagram-username">Profile username</label>
-                <input id="instagram-username" name="instagramUsername" type="text" autocomplete="off" spellcheck="false" placeholder="loonletwow">
-              </div>
-              <div class="field readonly-field">
-                <label for="crawler-mode">Crawler mode</label>
-                <input id="crawler-mode" type="text" value="New posts only" readonly>
-              </div>
-            </div>
-            <p class="help-text">The current Instagram profile API exposes recent posts, not dependable full-history paging. First successful run seeds existing recent posts and delivers only later unseen posts.</p>
-            <button id="instagram-save" type="submit">Save tracking</button>
-          </form>
-
-          <form id="discord-form" class="settings-block" novalidate>
-            <div class="field-head">
-              <div>
-                <h3>Discord delivery</h3>
-                <p id="discord-current" class="meta">Not connected</p>
-              </div>
-              <div class="button-row">
-                <a id="discord-oauth" class="button secondary" href="/oauth/discord/start" hidden>Connect Discord</a>
-                <button id="discord-disconnect" class="secondary" type="button" hidden>Disconnect</button>
-              </div>
-            </div>
-            <label for="discord-webhook">Webhook URL</label>
-            <div class="input-row">
-              <input id="discord-webhook" name="webhookUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://discord.com/api/webhooks/...">
-              <button id="discord-save" type="submit">Save webhook</button>
-            </div>
-            <button id="discord-test" class="secondary standalone" type="button">Send test</button>
-          </form>
-
-          <div class="settings-block status-block">
-            <h3>Run status</h3>
-            <dl class="status-list">
-              <div>
-                <dt>Last check</dt>
-                <dd id="last-check">Never</dd>
-              </div>
-              <div>
-                <dt>Last post</dt>
-                <dd id="last-post">Never</dd>
-              </div>
-              <div>
-                <dt>Result</dt>
-                <dd id="automation-result">Idle</dd>
-              </div>
-            </dl>
-          </div>
-        </div>
-
-        <p id="automation-status" class="status" role="status" aria-live="polite"></p>
+        <p id="gallery-status" class="gallery-status" role="status"></p>
       </section>
     </main>
 
