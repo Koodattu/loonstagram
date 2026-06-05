@@ -123,13 +123,16 @@ func (p *Poller) check(ctx context.Context) error {
 	if !settings.Enabled {
 		return nil
 	}
-	if settings.InstagramUsername == "" || settings.DiscordWebhookURL == "" {
-		return p.store.UpdateAutomationRun(ctx, time.Now(), time.Time{}, "Automation needs Instagram and Discord.", "")
+	if settings.InstagramUsername == "" {
+		return p.store.UpdateAutomationRun(ctx, time.Now(), time.Time{}, "Automation needs an Instagram profile.", "")
 	}
-	webhookURL, err := secret.OpenString(p.secretKey, settings.DiscordWebhookURL)
-	if err != nil {
-		_ = p.store.UpdateAutomationRun(ctx, time.Now(), time.Time{}, "Discord webhook could not be read.", sanitizeError(err))
-		return err
+	webhookURL := ""
+	if settings.DiscordWebhookURL != "" {
+		webhookURL, err = secret.OpenString(p.secretKey, settings.DiscordWebhookURL)
+		if err != nil {
+			_ = p.store.UpdateAutomationRun(ctx, time.Now(), time.Time{}, "Discord webhook could not be read.", sanitizeError(err))
+			return err
+		}
 	}
 
 	now := time.Now()
@@ -152,7 +155,11 @@ func (p *Poller) check(ctx context.Context) error {
 				return err
 			}
 		}
-		return p.store.UpdateAutomationRun(ctx, now, time.Time{}, fmt.Sprintf("Watching @%s. Future posts will be delivered.", settings.InstagramUsername), "")
+		status := fmt.Sprintf("Watching @%s. Recent posts cached.", settings.InstagramUsername)
+		if webhookURL != "" {
+			status = fmt.Sprintf("Watching @%s. Future posts will be delivered.", settings.InstagramUsername)
+		}
+		return p.store.UpdateAutomationRun(ctx, now, time.Time{}, status, "")
 	}
 
 	posted := 0
@@ -172,6 +179,13 @@ func (p *Poller) check(ctx context.Context) error {
 
 		if err := p.ensurePostCached(ctx, item, now); err != nil {
 			p.logger.Warn("new post cache failed", "shortcode", item.Ref.Shortcode, "error", sanitizeError(err))
+		}
+
+		if webhookURL == "" {
+			if err := p.store.MarkInstagramMediaSeen(ctx, seenMedia(settings.InstagramUsername, item, now, time.Time{}, false)); err != nil {
+				return err
+			}
+			continue
 		}
 
 		fixedURL := p.publicBaseURL + item.Ref.CanonicalPath()
