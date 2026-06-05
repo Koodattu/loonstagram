@@ -11,7 +11,6 @@
   --pink: oklch(0.72 0.2 348);
   --purple: oklch(0.66 0.18 300);
   --orange: oklch(0.78 0.16 45);
-  --yellow: oklch(0.86 0.17 86);
   --primary: var(--pink);
   --primary-hover: oklch(0.78 0.2 348);
   --primary-ink: oklch(0.1 0.02 348);
@@ -72,11 +71,11 @@ a {
 }
 
 .wordmark {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--ink);
+  display: inline-block;
+  color: transparent;
+  background: linear-gradient(90deg, var(--orange), var(--pink) 48%, var(--purple));
+  background-clip: text;
+  -webkit-background-clip: text;
   font-size: 2.7rem;
   line-height: 1.06;
   font-weight: 900;
@@ -89,46 +88,9 @@ a {
   transition-timing-function: var(--ease-standard);
 }
 
-.wordmark::before {
-  content: "";
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  border-radius: 10px;
-  background:
-    radial-gradient(circle at 72% 24%, white 0 6%, transparent 7%),
-    radial-gradient(circle at 35% 72%, var(--yellow), transparent 28%),
-    linear-gradient(135deg, var(--orange), var(--pink) 48%, var(--purple));
-  box-shadow:
-    inset 0 0 0 2px oklch(1 0 0 / 0.82),
-    0 9px 22px oklch(0.72 0.2 348 / 0.28);
-}
-
-.wordmark::after {
-  content: "";
-  position: absolute;
-  left: 48px;
-  right: 0;
-  bottom: -2px;
-  height: 3px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--orange), var(--pink), var(--purple));
-  opacity: 0.72;
-  transform: scaleX(0.58);
-  transform-origin: left;
-  transition-property: opacity, transform;
-  transition-duration: 180ms;
-  transition-timing-function: var(--ease-standard);
-}
-
 .wordmark:hover {
   transform: translateY(-1px);
   filter: saturate(1.12);
-}
-
-.wordmark:hover::after {
-  opacity: 1;
-  transform: scaleX(1);
 }
 
 .wordmark:active {
@@ -346,31 +308,6 @@ button.secondary:hover,
   transition-timing-function: var(--ease-standard);
 }
 
-.gallery-card::before,
-.gallery-card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  opacity: 0;
-  transition-property: opacity, transform;
-  transition-duration: 220ms;
-  transition-timing-function: var(--ease-standard);
-}
-
-.gallery-card::before {
-  background:
-    linear-gradient(180deg, oklch(0 0 0 / 0) 52%, oklch(0 0 0 / 0.34)),
-    radial-gradient(circle at 30% 20%, oklch(1 0 0 / 0.22), transparent 28%);
-}
-
-.gallery-card::after {
-  width: 38%;
-  background: linear-gradient(105deg, transparent, oklch(1 0 0 / 0.3), transparent);
-  transform: translateX(-135%) skewX(-12deg);
-}
-
 .gallery-card img {
   width: 100%;
   height: 100%;
@@ -385,27 +322,17 @@ button.secondary:hover,
 
 .gallery-card:hover {
   z-index: 2;
-  box-shadow: 0 14px 34px oklch(0 0 0 / 0.36);
-  transform: translateY(-2px) scale(1.012);
-}
-
-.gallery-card:hover::before,
-.gallery-card:focus-visible::before {
-  opacity: 1;
-}
-
-.gallery-card:hover::after {
-  opacity: 1;
-  transform: translateX(255%) skewX(-12deg);
+  box-shadow: 0 10px 24px oklch(0 0 0 / 0.34);
+  transform: translateY(-2px) scale(1.025);
 }
 
 .gallery-card:hover img {
-  transform: scale(1.07);
-  filter: brightness(0.86) saturate(1.12);
+  transform: scale(1.055);
+  filter: brightness(0.94) saturate(1.08);
 }
 
 .gallery-card:focus-visible img {
-  filter: brightness(0.86) saturate(1.08);
+  filter: brightness(0.94) saturate(1.06);
 }
 
 .gallery-card:active {
@@ -535,7 +462,7 @@ button.secondary:hover,
 }
 
 .viewer-media-item {
-  animation: viewer-media-in 230ms var(--ease-out-quint) both;
+  animation: viewer-media-in 150ms var(--ease-out-quint) both;
 }
 
 .viewer-media[data-direction="next"] .viewer-media-item {
@@ -639,42 +566,48 @@ button.secondary:hover,
 
 .viewer-media-prev,
 .viewer-media-next {
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.viewer-media-prev {
-  left: 66px;
-}
-
-.viewer-media-next {
-  right: 66px;
+  position: static;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  min-height: 38px;
+  background: transparent;
 }
 
 .viewer-media-prev:active,
 .viewer-media-next:active {
-  transform: translateY(-50%) scale(0.96);
+  transform: scale(0.96);
 }
 
-.viewer-dots {
+.viewer-media-controls {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 4;
+  display: inline-grid;
+  grid-template-columns: 38px auto 38px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: oklch(0.08 0 0 / 0.72);
+  box-shadow: 0 8px 18px oklch(0 0 0 / 0.34);
+  transform: translateX(-50%);
+  backdrop-filter: blur(10px);
+}
+
+.viewer-media-controls[hidden] {
   display: none;
 }
 
-.viewer-dot {
-  width: 7px;
-  height: 7px;
-  min-height: 7px;
-  padding: 0;
-  border-radius: 999px;
-  background: oklch(1 0 0 / 0.38);
-  transition-property: background-color, transform;
-  transition-duration: 150ms;
-  transition-timing-function: var(--ease-standard);
-}
-
-.viewer-dot[aria-current="true"] {
-  background: var(--ink);
-  transform: scale(1.25);
+.viewer-media-count {
+  min-width: 50px;
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 780;
+  line-height: 1;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 @keyframes spin {
@@ -728,8 +661,8 @@ button.secondary:hover,
 @keyframes viewer-media-in {
   from {
     opacity: 0;
-    transform: scale(1.03);
-    filter: blur(5px);
+    transform: scale(1.018);
+    filter: blur(2px);
   }
   to {
     opacity: 1;
@@ -741,8 +674,8 @@ button.secondary:hover,
 @keyframes viewer-media-in-next {
   from {
     opacity: 0;
-    transform: translateX(18px) scale(1.025);
-    filter: blur(5px);
+    transform: translateX(12px) scale(1.012);
+    filter: blur(2px);
   }
   to {
     opacity: 1;
@@ -754,8 +687,8 @@ button.secondary:hover,
 @keyframes viewer-media-in-prev {
   from {
     opacity: 0;
-    transform: translateX(-18px) scale(1.025);
-    filter: blur(5px);
+    transform: translateX(-12px) scale(1.012);
+    filter: blur(2px);
   }
   to {
     opacity: 1;
@@ -995,14 +928,6 @@ label {
   .viewer-prev {
     top: 50%;
   }
-
-  .viewer-media-prev {
-    left: 58px;
-  }
-
-  .viewer-media-next {
-    right: 58px;
-  }
 }
 
 @media (max-width: 560px) {
@@ -1018,17 +943,6 @@ label {
 
   .wordmark {
     font-size: 2.15rem;
-    gap: 10px;
-  }
-
-  .wordmark::before {
-    width: 31px;
-    height: 31px;
-    border-radius: 9px;
-  }
-
-  .wordmark::after {
-    left: 41px;
   }
 
   .admin-head {

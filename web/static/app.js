@@ -16,6 +16,7 @@ const viewerMedia = document.querySelector("#viewer-media");
 const viewerDots = document.querySelector("#viewer-dots");
 const viewerMediaPrev = document.querySelector("#viewer-media-prev");
 const viewerMediaNext = document.querySelector("#viewer-media-next");
+const viewerMediaCount = document.querySelector("#viewer-media-count");
 const viewerTitle = document.querySelector("#viewer-title");
 const viewerCaption = document.querySelector("#viewer-caption");
 const viewerFixed = document.querySelector("#viewer-fixed");
@@ -316,17 +317,17 @@ function galleryTiles(items) {
     if (!Array.isArray(post.media)) {
       return;
     }
-    post.media.forEach((media, mediaIndex) => {
-      if (!media.imageUrl) {
-        return;
-      }
-      out.push({
-        post,
-        postIndex,
-        media,
-        mediaIndex,
-        imageURL: media.imageUrl,
-      });
+    const mediaIndex = post.media.findIndex((media) => media.imageUrl);
+    if (mediaIndex < 0) {
+      return;
+    }
+    const media = post.media[mediaIndex];
+    out.push({
+      post,
+      postIndex,
+      media,
+      mediaIndex,
+      imageURL: media.imageUrl,
     });
   });
   return out;
@@ -381,7 +382,7 @@ function renderViewer() {
     delete viewerMedia.dataset.direction;
   }
   viewerMedia.replaceChildren(renderViewerMedia(media, post));
-  renderViewerDots(post);
+  renderViewerIndicator(post);
   galleryState.viewerDirection = "";
 
   const hasMultiplePosts = galleryState.items.length > 1;
@@ -413,22 +414,11 @@ function renderViewerMedia(media, post) {
   return image;
 }
 
-function renderViewerDots(post) {
-  const dots = post.media.map((_, index) => {
-    const dot = document.createElement("button");
-    dot.className = "viewer-dot";
-    dot.type = "button";
-    dot.setAttribute("aria-label", `View image ${index + 1}`);
-    if (index === galleryState.mediaIndex) {
-      dot.setAttribute("aria-current", "true");
-    }
-    dot.addEventListener("click", () => {
-      galleryState.mediaIndex = index;
-      renderViewer();
-    });
-    return dot;
-  });
-  viewerDots.replaceChildren(...dots);
+function renderViewerIndicator(post) {
+  if (!viewerMediaCount) {
+    return;
+  }
+  viewerMediaCount.textContent = `${galleryState.mediaIndex + 1} / ${post.media.length}`;
 }
 
 function showRelativePost(offset) {
@@ -462,7 +452,7 @@ function handleViewerWheel(event) {
   event.preventDefault();
   viewerWheelTimer = window.setTimeout(() => {
     viewerWheelTimer = 0;
-  }, 260);
+  }, 190);
   const direction = strongestDelta > 0 ? 1 : -1;
   const post = galleryState.items[galleryState.postIndex];
   if (post && post.media.length > 1) {
