@@ -59,6 +59,15 @@ const galleryState = {
 let fixedURLMode = false;
 let statusAnimationTimer = 0;
 let viewerWheelTimer = 0;
+let galleryImageLoadTimer = 0;
+const galleryImageQueue = [];
+const galleryImageLoadInterval = 140;
+const galleryImageObserver = "IntersectionObserver" in window
+  ? new IntersectionObserver(loadVisibleGalleryImages, {
+      rootMargin: "160px 0px",
+      threshold: 0.01,
+    })
+  : null;
 
 function setStatus(message, kind = "") {
   if (!statusText) {
@@ -270,6 +279,7 @@ function renderGallery() {
   if (!galleryGrid) {
     return;
   }
+  resetGalleryImageLoading();
   const cards = galleryState.tiles.map((tile, index) => {
     const button = document.createElement("button");
     button.className = "gallery-card";
@@ -280,9 +290,12 @@ function renderGallery() {
 
     if (tile.imageURL) {
       const image = document.createElement("img");
-      image.src = tile.imageURL;
+      image.dataset.src = tile.imageURL;
+      image.dataset.tileIndex = String(index);
       image.alt = tile.post.caption ? `@${tile.post.username}: ${tile.post.caption}` : `@${tile.post.username} Instagram post`;
       image.loading = "lazy";
+      image.decoding = "async";
+      image.addEventListener("error", retryGalleryImage);
       button.append(image);
     }
 
@@ -295,6 +308,77 @@ function renderGallery() {
     return button;
   });
   galleryGrid.replaceChildren(...cards);
+  galleryGrid.querySelectorAll("img[data-src]").forEach(observeGalleryImage);
+}
+
+function resetGalleryImageLoading() {
+  window.clearTimeout(galleryImageLoadTimer);
+  galleryImageLoadTimer = 0;
+  galleryImageQueue.length = 0;
+  if (galleryImageObserver) {
+    galleryImageObserver.disconnect();
+  }
+}
+
+function observeGalleryImage(image) {
+  if (galleryImageObserver) {
+    galleryImageObserver.observe(image);
+    return;
+  }
+  enqueueGalleryImage(image);
+}
+
+function loadVisibleGalleryImages(entries) {
+  entries.forEach((entry) => {
+    if (!entry.isIntersecting) {
+      return;
+    }
+    galleryImageObserver.unobserve(entry.target);
+    enqueueGalleryImage(entry.target);
+  });
+}
+
+function enqueueGalleryImage(image) {
+  if (!image || image.src || image.dataset.queued === "true") {
+    return;
+  }
+  image.dataset.queued = "true";
+  galleryImageQueue.push(image);
+  scheduleGalleryImageLoad();
+}
+
+function scheduleGalleryImageLoad() {
+  if (galleryImageLoadTimer || galleryImageQueue.length === 0) {
+    return;
+  }
+  galleryImageLoadTimer = window.setTimeout(loadNextGalleryImage, galleryImageLoadInterval);
+}
+
+function loadNextGalleryImage() {
+  galleryImageLoadTimer = 0;
+  const image = galleryImageQueue.shift();
+  if (image && image.isConnected && !image.src && image.dataset.src) {
+    image.src = image.dataset.src;
+  }
+  scheduleGalleryImageLoad();
+}
+
+function retryGalleryImage(event) {
+  const image = event.currentTarget;
+  const source = image && image.dataset.src;
+  if (!source || image.dataset.retry === "true") {
+    return;
+  }
+  image.dataset.retry = "true";
+  const index = Number.parseInt(image.dataset.tileIndex || "0", 10);
+  const delay = 1600 + Math.min(index, 24) * 120;
+  window.setTimeout(() => {
+    if (!image.isConnected) {
+      return;
+    }
+    const separator = source.includes("?") ? "&" : "?";
+    image.src = `${source}${separator}retry=1`;
+  }, delay);
 }
 
 function renderGalleryEmpty(message) {
