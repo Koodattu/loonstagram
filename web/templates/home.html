@@ -16,16 +16,18 @@
           <label class="sr-only" for="instagram-url">Instagram URL</label>
           <div class="input-row">
             <input id="instagram-url" name="url" type="url" inputmode="url" autocomplete="off" placeholder="Instagram URL" aria-describedby="status" required>
-            <button id="submit-button" type="submit">Create fixed URL</button>
-            <button id="fix-another-button" class="secondary" type="button" hidden>Fix another</button>
+            <button id="submit-button" type="submit">Copy fixed URL</button>
           </div>
           <p id="status" class="status" role="status" aria-live="polite"></p>
         </form>
       </header>
 
       <section class="gallery-section" aria-label="Loonstagram gallery">
+        <div class="gallery-toolbar">
+          <p id="gallery-status" class="gallery-status" role="status"></p>
+          <button id="gallery-refresh" class="secondary subtle-button" type="button" hidden>Refresh recent</button>
+        </div>
         <div id="gallery-grid" class="gallery-grid" aria-live="polite"></div>
-        <p id="gallery-status" class="gallery-status" role="status"></p>
       </section>
     </main>
 
@@ -47,8 +49,9 @@
             <h3 id="viewer-title">@loonletwow</h3>
             <p id="viewer-caption"></p>
             <div class="viewer-links">
-              <a id="viewer-fixed" class="button" href="#" target="_blank" rel="noopener">Open fixed URL</a>
+              <button id="viewer-fixed" class="button" type="button">Copy fixed URL</button>
               <a id="viewer-original" class="button secondary" href="#" target="_blank" rel="noopener">Open Instagram</a>
+              <a id="viewer-debug" class="button secondary subtle-button" href="#" target="_blank" rel="noopener">Open debug</a>
             </div>
           </aside>
         </article>

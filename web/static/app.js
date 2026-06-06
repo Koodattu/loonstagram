@@ -1,7 +1,6 @@
 const form = document.querySelector("#convert-form");
 const sourceInput = document.querySelector("#instagram-url");
 const submitButton = document.querySelector("#submit-button");
-const fixAnotherButton = document.querySelector("#fix-another-button");
 const statusText = document.querySelector("#status");
 
 const galleryProfile = document.querySelector("#gallery-profile");
@@ -21,6 +20,7 @@ const viewerTitle = document.querySelector("#viewer-title");
 const viewerCaption = document.querySelector("#viewer-caption");
 const viewerFixed = document.querySelector("#viewer-fixed");
 const viewerOriginal = document.querySelector("#viewer-original");
+const viewerDebug = document.querySelector("#viewer-debug");
 
 const adminForm = document.querySelector("#admin-form");
 const adminDialog = document.querySelector("#admin-dialog");
@@ -56,7 +56,6 @@ const galleryState = {
   viewerDirection: "",
 };
 
-let fixedURLMode = false;
 let statusAnimationTimer = 0;
 let viewerWheelTimer = 0;
 
@@ -110,10 +109,10 @@ function setGalleryStatus(message, kind = "") {
 }
 
 function adminToken() {
-  if (!adminInput) {
-    return "";
+  if (adminInput && adminInput.value.trim()) {
+    return adminInput.value.trim();
   }
-  return adminInput.value.trim();
+  return savedAdminToken || "";
 }
 
 function adminHeaders() {
@@ -252,6 +251,50 @@ async function loadGallery() {
   }
 }
 
+async function refreshGallery() {
+  if (!galleryGrid) {
+    return;
+  }
+  const token = adminToken();
+  if (!token) {
+    setGalleryStatus("Admin token is required to refresh recent posts.", "error");
+    return;
+  }
+  if (galleryRefresh) {
+    galleryRefresh.disabled = true;
+    galleryRefresh.setAttribute("aria-busy", "true");
+  }
+  setGalleryStatus("Refreshing recent posts...");
+  try {
+    const response = await fetch("/api/gallery/refresh", {
+      method: "POST",
+      headers: {
+        "X-Admin-Token": token,
+      },
+    });
+    const payload = await readJSON(response);
+    if (!response.ok || !payload.ok) {
+      setGalleryStatus(payload.error || "Could not refresh recent posts.", "error");
+      return;
+    }
+    galleryState.items = Array.isArray(payload.items) ? payload.items : [];
+    galleryState.tiles = galleryTiles(galleryState.items);
+    if (galleryState.tiles.length === 0) {
+      renderGalleryEmpty(payload.empty || "No cached gallery posts yet.");
+    } else {
+      renderGallery();
+    }
+    setGalleryStatus(payload.error || "Recent posts refreshed.", payload.error ? "error" : "success");
+  } catch {
+    setGalleryStatus("Could not refresh recent posts.", "error");
+  } finally {
+    if (galleryRefresh) {
+      galleryRefresh.disabled = false;
+      galleryRefresh.removeAttribute("aria-busy");
+    }
+  }
+}
+
 function renderGallerySkeleton(count = 9) {
   if (!galleryGrid) {
     return;
@@ -373,8 +416,11 @@ function renderViewer() {
   const media = post.media[galleryState.mediaIndex] || post.media[0];
   viewerTitle.textContent = post.username ? `@${post.username}` : "@loonletwow";
   viewerCaption.textContent = post.caption || "No caption cached.";
-  viewerFixed.href = post.canonicalUrl || "#";
+  viewerFixed.dataset.url = post.canonicalUrl || "";
   viewerOriginal.href = post.originalUrl || "#";
+  if (viewerDebug) {
+    viewerDebug.href = post.type && post.shortcode ? `/debug/${post.type}/${post.shortcode}` : "#";
+  }
 
   if (galleryState.viewerDirection) {
     viewerMedia.dataset.direction = galleryState.viewerDirection;
@@ -486,11 +532,6 @@ if (form) {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  if (fixedURLMode) {
-    copyFixedURL();
-    return;
-  }
-
   const url = sourceInput.value.trim();
   if (!url) {
     setStatus("Unsupported Instagram URL", "error");
@@ -517,15 +558,8 @@ form.addEventListener("submit", async (event) => {
     }
 
     sourceInput.value = payload.url;
-    sourceInput.readOnly = true;
-    sourceInput.focus();
-    sourceInput.select();
-    fixedURLMode = true;
-    submitButton.textContent = "Copy URL";
-    if (fixAnotherButton) {
-      fixAnotherButton.hidden = false;
-    }
-    setStatus("Fixed URL created.", "success");
+    const copied = await copyText(payload.url, sourceInput);
+    setStatus(copied ? "Fixed URL copied." : "Fixed URL created. Select the field to copy it.", copied ? "success" : "error");
   } catch {
     setStatus("Could not create a fixed URL right now.", "error");
   } finally {
@@ -535,38 +569,28 @@ form.addEventListener("submit", async (event) => {
 });
 }
 
-if (fixAnotherButton) {
-  fixAnotherButton.addEventListener("click", () => {
-    fixedURLMode = false;
-    sourceInput.readOnly = false;
-    sourceInput.value = "";
-    submitButton.textContent = "Create fixed URL";
-    fixAnotherButton.hidden = true;
-    setStatus("");
-    sourceInput.focus();
-  });
-}
-
-async function copyFixedURL() {
-  const value = sourceInput && sourceInput.value;
+async function copyText(value, fallbackInput) {
   if (!value) {
-    return;
+    return false;
   }
 
   try {
     await navigator.clipboard.writeText(value);
-    setStatus("Copied URL.", "success");
+    return true;
   } catch {
-    if (sourceInput) {
-      sourceInput.focus();
-      sourceInput.select();
+    if (fallbackInput) {
+      fallbackInput.focus();
+      fallbackInput.select();
     }
-    setStatus("Select the fixed URL to copy it.", "error");
+    return false;
   }
 }
 
 if (galleryRefresh) {
-  galleryRefresh.addEventListener("click", loadGallery);
+  if (savedAdminToken) {
+    galleryRefresh.hidden = false;
+  }
+  galleryRefresh.addEventListener("click", refreshGallery);
 }
 if (viewerClose) {
   viewerClose.addEventListener("click", closeViewer);
@@ -585,6 +609,13 @@ if (viewerMediaNext) {
 }
 if (viewerMedia) {
   viewerMedia.addEventListener("wheel", handleViewerWheel, { passive: false });
+}
+
+if (viewerFixed) {
+  viewerFixed.addEventListener("click", async () => {
+    const copied = await copyText(viewerFixed.dataset.url || "");
+    setGalleryStatus(copied ? "Fixed URL copied." : "Could not copy fixed URL.", copied ? "success" : "error");
+  });
 }
 
 if (viewer) {

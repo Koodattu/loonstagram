@@ -272,6 +272,8 @@
               <dd>{{.Index}}</dd>
               <dt>Kind</dt>
               <dd>{{.Kind}}</dd>
+              <dt>Cropped URL</dt>
+              <dd>{{if .Cropped}}yes{{else}}no{{end}}</dd>
               <dt>Size</dt>
               <dd>{{if .Width}}{{.Width}} x {{.Height}}{{else}}unknown{{end}}</dd>
               <dt>Content type</dt>

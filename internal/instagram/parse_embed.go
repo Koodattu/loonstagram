@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"html"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ var (
 	metaTagPattern      = regexp.MustCompile(`(?is)<meta\s+([^>]+)>`)
 	attrPattern         = regexp.MustCompile(`(?is)([a-zA-Z_:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 	metaUsernamePattern = regexp.MustCompile(`(?:^|[\s(])@([A-Za-z0-9_.]+)`)
+	croppedStpPattern   = regexp.MustCompile(`(?:^|_)c\d+(?:\.\d+){3}a(?:_|$)`)
 )
 
 func ParseEmbedHTML(ref Ref, body string) (*Post, error) {
@@ -193,11 +195,7 @@ func applyInstagramAPIItem(post *Post, item map[string]any) {
 }
 
 func appendMediaFromNode(post *Post, node map[string]any) {
-	displayURL := firstString(
-		largestDisplayResource(node),
-		asString(node["display_url"]),
-		asString(node["thumbnail_src"]),
-	)
+	displayURL := largestDisplayResource(node)
 	videoURL := asString(node["video_url"])
 	isVideo := asBool(node["is_video"]) || videoURL != ""
 
@@ -269,21 +267,34 @@ func appendMediaFromAPIItem(post *Post, item map[string]any) {
 }
 
 func largestDisplayResource(node map[string]any) string {
+	best := imageVersionCandidate{}
+	for _, key := range []string{"display_url", "thumbnail_src"} {
+		raw := asString(node[key])
+		candidate := imageVersionCandidate{
+			URL:     raw,
+			Cropped: LooksCroppedMediaURL(raw),
+		}
+		if betterImageCandidate(candidate, best) {
+			best = candidate
+		}
+	}
 	resources := asSlice(node["display_resources"])
-	bestURL := ""
-	bestWidth := 0
 	for _, item := range resources {
 		resource := asMap(item)
 		if resource == nil {
 			continue
 		}
-		width := asInt(resource["config_width"])
-		if width >= bestWidth {
-			bestWidth = width
-			bestURL = asString(resource["src"])
+		candidate := imageVersionCandidate{
+			URL:     asString(resource["src"]),
+			Width:   asInt(resource["config_width"]),
+			Height:  asInt(resource["config_height"]),
+			Cropped: LooksCroppedMediaURL(asString(resource["src"])),
+		}
+		if betterImageCandidate(candidate, best) {
+			best = candidate
 		}
 	}
-	return bestURL
+	return best.URL
 }
 
 func dimensions(node map[string]any) (int, int) {
@@ -296,13 +307,15 @@ func dimensions(node map[string]any) (int, int) {
 func bestImageVersion(item map[string]any) (string, int, int) {
 	versions := asMap(item["image_versions2"])
 	candidates := asSlice(versions["candidates"])
-	bestURL := firstString(
-		asString(item["thumbnail_url"]),
-		asString(item["display_url"]),
-	)
-	bestWidth := asInt(item["original_width"])
-	bestHeight := asInt(item["original_height"])
-	bestArea := bestWidth * bestHeight
+	best := imageVersionCandidate{
+		URL: firstString(
+			asString(item["thumbnail_url"]),
+			asString(item["display_url"]),
+		),
+		Width:  asInt(item["original_width"]),
+		Height: asInt(item["original_height"]),
+	}
+	best.Cropped = LooksCroppedMediaURL(best.URL)
 
 	for _, candidate := range candidates {
 		node := asMap(candidate)
@@ -313,18 +326,63 @@ func bestImageVersion(item map[string]any) (string, int, int) {
 		if url == "" {
 			continue
 		}
-		width := asInt(node["width"])
-		height := asInt(node["height"])
-		area := width * height
-		if bestURL == "" || area >= bestArea {
-			bestURL = url
-			bestWidth = width
-			bestHeight = height
-			bestArea = area
+		next := imageVersionCandidate{
+			URL:     url,
+			Width:   asInt(node["width"]),
+			Height:  asInt(node["height"]),
+			Cropped: LooksCroppedMediaURL(url),
+		}
+		if betterImageCandidate(next, best) {
+			best = next
 		}
 	}
 
-	return bestURL, bestWidth, bestHeight
+	return best.URL, best.Width, best.Height
+}
+
+type imageVersionCandidate struct {
+	URL     string
+	Width   int
+	Height  int
+	Cropped bool
+}
+
+func betterImageCandidate(candidate, current imageVersionCandidate) bool {
+	if candidate.URL == "" {
+		return false
+	}
+	if current.URL == "" {
+		return true
+	}
+	if candidate.Cropped != current.Cropped {
+		return !candidate.Cropped
+	}
+	candidateArea := candidate.Width * candidate.Height
+	currentArea := current.Width * current.Height
+	if candidateArea != currentArea {
+		return candidateArea > currentArea
+	}
+	return candidate.Width > current.Width
+}
+
+func LooksCroppedMediaURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err == nil {
+		if stp := parsed.Query().Get("stp"); croppedStpPattern.MatchString(stp) {
+			return true
+		}
+	}
+	if _, after, ok := strings.Cut(raw, "stp="); ok {
+		stp := after
+		if end := strings.IndexByte(stp, '&'); end >= 0 {
+			stp = stp[:end]
+		}
+		if value, err := url.QueryUnescape(stp); err == nil {
+			stp = value
+		}
+		return croppedStpPattern.MatchString(stp)
+	}
+	return false
 }
 
 func bestVideoVersion(item map[string]any) (string, int, int) {

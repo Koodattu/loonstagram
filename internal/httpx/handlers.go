@@ -37,6 +37,10 @@ type PostDebugger interface {
 	DebugFetchPost(ctx context.Context, ref instagram.Ref) instagram.DebugReport
 }
 
+type ProfileFetcher interface {
+	FetchRecentMedia(ctx context.Context, username string, limit int) ([]instagram.RecentMedia, error)
+}
+
 type Options struct {
 	PublicBaseURL       string
 	CacheSuccessTTL     time.Duration
@@ -50,6 +54,7 @@ type Options struct {
 	Store               *cache.Store
 	MediaCache          *mediacache.Store
 	Scraper             PostFetcher
+	Profiles            ProfileFetcher
 	Logger              *slog.Logger
 }
 
@@ -66,6 +71,7 @@ type Handlers struct {
 	store               *cache.Store
 	mediaCache          *mediacache.Store
 	scraper             PostFetcher
+	profiles            ProfileFetcher
 	logger              *slog.Logger
 	templates           *template.Template
 	flight              *flight
@@ -103,6 +109,7 @@ func NewHandlers(opts Options) (*Handlers, error) {
 		store:               opts.Store,
 		mediaCache:          opts.MediaCache,
 		scraper:             opts.Scraper,
+		profiles:            opts.Profiles,
 		logger:              opts.Logger,
 		templates:           templates,
 		flight:              newFlight(),
@@ -131,6 +138,7 @@ func (h *Handlers) Routes() http.Handler {
 	mux.HandleFunc("GET /admin", h.admin)
 	mux.HandleFunc("GET /api/cache/status", h.cacheStatus)
 	mux.HandleFunc("GET /api/gallery", h.gallery)
+	mux.HandleFunc("POST /api/gallery/refresh", h.refreshGallery)
 	mux.HandleFunc("POST /api/convert", h.convert)
 	mux.HandleFunc("GET /p/{shortcode}", h.canonical(instagram.TypePost))
 	mux.HandleFunc("GET /reel/{shortcode}", h.canonical(instagram.TypeReel))
@@ -317,23 +325,100 @@ type galleryMedia struct {
 }
 
 func (h *Handlers) gallery(w http.ResponseWriter, r *http.Request) {
-	username := defaultGalleryUsername
-	source := "default"
-	settings, err := h.store.GetAutomationSettings(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, galleryResponse{OK: false, Error: "Could not load gallery"})
-		return
-	}
-	if settings.InstagramUsername != "" {
-		username = settings.InstagramUsername
-		source = "automation"
-	}
-
-	posts, err := h.store.ListGalleryPosts(r.Context(), username, 120, time.Now())
+	response, err := h.galleryPayload(r.Context())
 	if err != nil {
 		h.logger.Error("load gallery", "error", err)
 		writeJSON(w, http.StatusInternalServerError, galleryResponse{OK: false, Error: "Could not load gallery"})
 		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handlers) refreshGallery(w http.ResponseWriter, r *http.Request) {
+	if !h.authorizeAdmin(w, r) {
+		return
+	}
+	if h.profiles == nil {
+		writeJSON(w, http.StatusServiceUnavailable, galleryResponse{OK: false, Error: "Instagram profile refresh is not configured"})
+		return
+	}
+
+	username, _, err := h.galleryUsername(r.Context())
+	if err != nil {
+		h.logger.Error("load gallery settings", "error", err)
+		writeJSON(w, http.StatusInternalServerError, galleryResponse{OK: false, Error: "Could not load gallery settings"})
+		return
+	}
+
+	now := time.Now()
+	media, err := h.profiles.FetchRecentMedia(r.Context(), username, 24)
+	if err != nil {
+		h.logger.Warn("gallery refresh profile fetch failed", "profile", username, "error", sanitizeLogError(err))
+		writeJSON(w, http.StatusBadGateway, galleryResponse{OK: false, Error: "Instagram profile fetch failed"})
+		return
+	}
+
+	cached := 0
+	failed := 0
+	for _, item := range media {
+		if post, ok, err := h.store.GetAny(r.Context(), item.Ref); err != nil {
+			h.logger.Warn("gallery refresh cache read failed", "shortcode", item.Ref.Shortcode, "error", sanitizeLogError(err))
+			failed++
+			continue
+		} else if ok && post.Status == "ok" && len(post.Media) > 0 {
+			continue
+		}
+
+		post, err := h.scraper.FetchPost(r.Context(), item.Ref)
+		if err != nil {
+			h.logger.Warn("gallery refresh post fetch failed", "shortcode", item.Ref.Shortcode, "media_type", item.Ref.Type, "error", sanitizeLogError(err))
+			failed++
+			continue
+		}
+		post.Ref = item.Ref
+		post.Status = "ok"
+		post.Error = ""
+		if post.OriginalURL == "" {
+			post.OriginalURL = firstString(item.InstagramURL, item.Ref.OriginalURL())
+		}
+		if post.Username == "" {
+			post.Username = item.Username
+		}
+		if post.Caption == "" {
+			post.Caption = item.Caption
+		}
+		post.FetchedAt = now
+		post.ExpiresAt = now.Add(h.cacheSuccessTTL)
+		if err := h.store.Put(r.Context(), post); err != nil {
+			h.logger.Warn("gallery refresh cache write failed", "shortcode", item.Ref.Shortcode, "error", sanitizeLogError(err))
+			failed++
+			continue
+		}
+		cached++
+	}
+	h.logger.Info("gallery refresh complete", "profile", username, "recent", len(media), "cached", cached, "failed", failed)
+
+	response, err := h.galleryPayload(r.Context())
+	if err != nil {
+		h.logger.Error("load refreshed gallery", "error", err)
+		writeJSON(w, http.StatusInternalServerError, galleryResponse{OK: false, Error: "Could not load refreshed gallery"})
+		return
+	}
+	if failed > 0 {
+		response.Error = fmt.Sprintf("Refreshed gallery with %d failed post fetches.", failed)
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handlers) galleryPayload(ctx context.Context) (galleryResponse, error) {
+	username, source, err := h.galleryUsername(ctx)
+	if err != nil {
+		return galleryResponse{}, err
+	}
+
+	posts, err := h.store.ListGalleryPosts(ctx, username, 120, time.Now())
+	if err != nil {
+		return galleryResponse{}, err
 	}
 
 	items := make([]galleryItem, 0, len(posts))
@@ -346,20 +431,34 @@ func (h *Handlers) gallery(w http.ResponseWriter, r *http.Request) {
 	}
 	empty := ""
 	if len(items) == 0 {
-		empty = "No cached gallery posts yet. Create a fixed URL and let Discord preview it for this profile."
+		empty = "No cached gallery posts yet. Refresh recent posts or create a fixed URL for this profile."
 		h.logger.Info("gallery empty", "profile", username, "source", source, "cached_posts", len(posts))
 	} else {
 		h.logger.Info("gallery loaded", "profile", username, "source", source, "cached_posts", len(posts), "items", len(items))
 		h.warmGalleryMedia(posts)
 	}
-	writeJSON(w, http.StatusOK, galleryResponse{
+	return galleryResponse{
 		OK:      true,
 		Profile: username,
 		Source:  source,
 		Items:   items,
 		Empty:   empty,
 		Updated: formatTime(time.Now()),
-	})
+	}, nil
+}
+
+func (h *Handlers) galleryUsername(ctx context.Context) (string, string, error) {
+	username := defaultGalleryUsername
+	source := "default"
+	settings, err := h.store.GetAutomationSettings(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	if settings.InstagramUsername != "" {
+		username = settings.InstagramUsername
+		source = "automation"
+	}
+	return username, source, nil
 }
 
 func (h *Handlers) galleryItem(post *instagram.Post) galleryItem {
@@ -536,6 +635,7 @@ type debugCacheData struct {
 type debugMediaData struct {
 	Index           int    `json:"index"`
 	Kind            string `json:"kind"`
+	Cropped         bool   `json:"cropped"`
 	ImageURL        string `json:"imageUrl,omitempty"`
 	ImagePreviewURL string `json:"imagePreviewUrl,omitempty"`
 	VideoURL        string `json:"videoUrl,omitempty"`
@@ -690,6 +790,7 @@ func (h *Handlers) debugMedia(post *instagram.Post) []debugMediaData {
 		out = append(out, debugMediaData{
 			Index:           i + 1,
 			Kind:            item.Kind,
+			Cropped:         instagram.LooksCroppedMediaURL(remoteURL),
 			ImageURL:        imageURL,
 			ImagePreviewURL: imagePreviewURL,
 			VideoURL:        videoURL,

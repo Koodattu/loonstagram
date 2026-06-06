@@ -412,6 +412,62 @@ func TestGalleryUsesConfiguredProfileAndLocalMediaURLs(t *testing.T) {
 	}
 }
 
+func TestRefreshGalleryFetchesRecentPosts(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	if err := store.SaveAutomationConfig(ctx, "loonletwow", false, time.Now()); err != nil {
+		t.Fatalf("SaveAutomationConfig() error = %v", err)
+	}
+	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	profiles := &fakeProfileFetcher{media: []instagram.RecentMedia{{
+		Ref:          ref,
+		Username:     "loonletwow",
+		InstagramURL: ref.OriginalURL(),
+	}}}
+	fetcher := &fakePostFetcher{post: &instagram.Post{
+		Username: "loonletwow",
+		Caption:  "caption",
+		Media:    []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/post.jpg"}},
+	}}
+	h, err := NewHandlers(Options{
+		PublicBaseURL:    "https://loonstagram.com",
+		CacheSuccessTTL:  time.Hour,
+		CacheNegativeTTL: time.Minute,
+		CacheBlockedTTL:  time.Minute,
+		AdminToken:       "secret",
+		Store:            store,
+		Scraper:          fetcher,
+		Profiles:         profiles,
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/gallery/refresh", nil)
+	req.Header.Set("X-Admin-Token", "secret")
+	rr := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if profiles.calls != 1 {
+		t.Fatalf("profile fetch calls = %d, want 1", profiles.calls)
+	}
+	if fetcher.calls != 1 {
+		t.Fatalf("post fetch calls = %d, want 1", fetcher.calls)
+	}
+	if body := rr.Body.String(); !strings.Contains(body, `"shortcode":"ABC123xyz"`) ||
+		!strings.Contains(body, `"imageUrl":"https://loonstagram.com/media/p/ABC123xyz/1/image"`) {
+		t.Fatalf("refresh response missing gallery item:\n%s", body)
+	}
+}
+
 func TestMediaEndpointCachesUpstreamBytes(t *testing.T) {
 	ctx := context.Background()
 	store, err := cache.Open(ctx, ":memory:")
@@ -523,6 +579,16 @@ func (f *fakePostFetcher) FetchPost(ctx context.Context, ref instagram.Ref) (*in
 	post := *f.post
 	post.Ref = ref
 	return &post, nil
+}
+
+type fakeProfileFetcher struct {
+	media []instagram.RecentMedia
+	calls int
+}
+
+func (f *fakeProfileFetcher) FetchRecentMedia(ctx context.Context, username string, limit int) ([]instagram.RecentMedia, error) {
+	f.calls++
+	return f.media, nil
 }
 
 func TestShouldRefreshCachedPost(t *testing.T) {

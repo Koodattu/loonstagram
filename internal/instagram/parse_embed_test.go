@@ -150,6 +150,69 @@ func TestParseEmbedHTMLPrefersLargestDisplayResource(t *testing.T) {
 	}
 }
 
+func TestParseEmbedHTMLPrefersUncroppedImageVersion(t *testing.T) {
+	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
+	body := `
+<script>
+  window.__data = {"items":[{
+    "user":{"username":"loonletwow"},
+    "caption":{"text":"Gliding into the weekend"},
+    "media_type":1,
+    "image_versions2":{"candidates":[
+      {"url":"https://scontent.cdninstagram.com/cropped.jpg?stp=c288.0.864.864a_dst-jpg_e35_s640x640_tt6","width":864,"height":864},
+      {"url":"https://scontent.cdninstagram.com/full.jpg?stp=dst-jpg_e35_tt6","width":657,"height":657}
+    ]}
+  }]};
+</script>`
+
+	post, err := ParseEmbedHTML(ref, body)
+	if err != nil {
+		t.Fatalf("ParseEmbedHTML() error = %v", err)
+	}
+	if len(post.Media) != 1 {
+		t.Fatalf("Media length = %d", len(post.Media))
+	}
+	if post.Media[0].URL != "https://scontent.cdninstagram.com/full.jpg?stp=dst-jpg_e35_tt6" {
+		t.Fatalf("Media URL = %q", post.Media[0].URL)
+	}
+}
+
+func TestParseEmbedHTMLPrefersUncroppedDisplayURLOverCroppedResource(t *testing.T) {
+	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
+	body := `
+<script>
+  window.__data = {"graphql":{"shortcode_media":{
+    "owner":{"username":"loonletwow"},
+    "edge_media_to_caption":{"edges":[{"node":{"text":"Gliding into the weekend"}}]},
+    "display_url":"https://scontent.cdninstagram.com/full.jpg?stp=dst-jpg_e35_tt6",
+    "display_resources":[
+      {"src":"https://scontent.cdninstagram.com/cropped.jpg?stp=c288.0.864.864a_dst-jpg_e35_s640x640_tt6","config_width":864,"config_height":864}
+    ],
+    "dimensions":{"width":1440,"height":1080}
+  }}};
+</script>`
+
+	post, err := ParseEmbedHTML(ref, body)
+	if err != nil {
+		t.Fatalf("ParseEmbedHTML() error = %v", err)
+	}
+	if len(post.Media) != 1 {
+		t.Fatalf("Media length = %d", len(post.Media))
+	}
+	if post.Media[0].URL != "https://scontent.cdninstagram.com/full.jpg?stp=dst-jpg_e35_tt6" {
+		t.Fatalf("Media URL = %q", post.Media[0].URL)
+	}
+}
+
+func TestLooksCroppedMediaURL(t *testing.T) {
+	if !LooksCroppedMediaURL("https://scontent.cdninstagram.com/image.jpg?stp=c288.0.864.864a_dst-jpg_e35_s640x640_tt6") {
+		t.Fatal("cropped stp was not detected")
+	}
+	if LooksCroppedMediaURL("https://scontent.cdninstagram.com/image.jpg?stp=dst-jpg_e35_s640x640_tt6") {
+		t.Fatal("plain resize stp should not be treated as cropped")
+	}
+}
+
 func TestParseEmbedHTMLExtractsInstagramAPIItemsCarousel(t *testing.T) {
 	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
 	body := `

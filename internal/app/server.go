@@ -11,11 +11,12 @@ import (
 )
 
 type HTTPHandlerOptions struct {
-	Config  Config
-	Store   *cache.Store
-	Media   *mediacache.Store
-	Scraper *instagram.Client
-	Logger  *slog.Logger
+	Config   Config
+	Store    *cache.Store
+	Media    *mediacache.Store
+	Scraper  *instagram.Client
+	Profiles *instagram.ProfileClient
+	Logger   *slog.Logger
 }
 
 func NewHTTPHandler(opts HTTPHandlerOptions) (http.Handler, error) {
@@ -36,6 +37,7 @@ func NewHTTPHandler(opts HTTPHandlerOptions) (http.Handler, error) {
 		Store:               opts.Store,
 		MediaCache:          opts.Media,
 		Scraper:             opts.Scraper,
+		Profiles:            opts.Profiles,
 		Logger:              opts.Logger,
 	})
 	if err != nil {

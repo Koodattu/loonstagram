@@ -72,11 +72,12 @@ func main() {
 	go poller.Run(ctx)
 
 	handler, err := app.NewHTTPHandler(app.HTTPHandlerOptions{
-		Config:  cfg,
-		Store:   store,
-		Media:   mediaCache,
-		Scraper: scraper,
-		Logger:  logger,
+		Config:   cfg,
+		Store:    store,
+		Media:    mediaCache,
+		Scraper:  scraper,
+		Profiles: profiles,
+		Logger:   logger,
 	})
 	if err != nil {
 		logger.Error("create handler", "error", err)
