@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -76,6 +77,18 @@ func RequestLogger(logger *slog.Logger, next http.Handler) http.Handler {
 			"user_agent_category", UserAgentCategory(r),
 			"cache", meta.cacheStatus,
 		)
+	})
+}
+
+func StripTrailingSlash(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" && strings.HasSuffix(r.URL.Path, "/") && !strings.HasPrefix(r.URL.Path, "/static/") {
+			r.URL.Path = strings.TrimRight(r.URL.Path, "/")
+			if r.URL.Path == "" {
+				r.URL.Path = "/"
+			}
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

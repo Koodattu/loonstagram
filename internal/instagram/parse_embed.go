@@ -194,9 +194,9 @@ func applyInstagramAPIItem(post *Post, item map[string]any) {
 
 func appendMediaFromNode(post *Post, node map[string]any) {
 	displayURL := firstString(
+		largestDisplayResource(node),
 		asString(node["display_url"]),
 		asString(node["thumbnail_src"]),
-		largestDisplayResource(node),
 	)
 	videoURL := asString(node["video_url"])
 	isVideo := asBool(node["is_video"]) || videoURL != ""

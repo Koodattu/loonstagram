@@ -24,6 +24,22 @@ type Store struct {
 	db *sql.DB
 }
 
+type Diagnostics struct {
+	Posts             int                 `json:"posts"`
+	OKPosts           int                 `json:"okPosts"`
+	OKPostsWithMedia  int                 `json:"okPostsWithMedia"`
+	ExpiredOKPosts    int                 `json:"expiredOkPosts"`
+	ExpiredNonOKPosts int                 `json:"expiredNonOkPosts"`
+	SeenMedia         int                 `json:"seenMedia"`
+	DeliveryAttempts  int                 `json:"deliveryAttempts"`
+	PostsByStatus     []StatusDiagnostics `json:"postsByStatus"`
+}
+
+type StatusDiagnostics struct {
+	Status string `json:"status"`
+	Count  int    `json:"count"`
+}
+
 func Open(ctx context.Context, path string) (*Store, error) {
 	if path != ":memory:" {
 		dir := filepath.Dir(path)
@@ -74,6 +90,20 @@ FROM posts
 WHERE shortcode = ? AND media_type = ? AND expires_at > ?
 `, ref.Shortcode, ref.Type, now.Unix())
 
+	return scanPost(row, ref)
+}
+
+func (s *Store) GetAny(ctx context.Context, ref instagram.Ref) (*instagram.Post, bool, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT original_url, username, caption, media_json, status, error, fetched_at, expires_at
+FROM posts
+WHERE shortcode = ? AND media_type = ?
+`, ref.Shortcode, ref.Type)
+
+	return scanPost(row, ref)
+}
+
+func scanPost(row *sql.Row, ref instagram.Ref) (*instagram.Post, bool, error) {
 	var originalURL, username, caption, mediaJSON, status, errText string
 	var fetchedAt, expiresAt int64
 	if err := row.Scan(&originalURL, &username, &caption, &mediaJSON, &status, &errText, &fetchedAt, &expiresAt); err != nil {
@@ -103,7 +133,7 @@ WHERE shortcode = ? AND media_type = ? AND expires_at > ?
 	}, true, nil
 }
 
-func (s *Store) ListGalleryPosts(ctx context.Context, username string, limit int, now time.Time) ([]instagram.Post, error) {
+func (s *Store) ListGalleryPosts(ctx context.Context, username string, limit int, _ time.Time) ([]instagram.Post, error) {
 	if limit <= 0 || limit > 120 {
 		limit = 30
 	}
@@ -116,11 +146,10 @@ LEFT JOIN instagram_seen_media seen
   ON lower(seen.username) = lower(posts.username)
   AND seen.shortcode = posts.shortcode
 WHERE posts.status = 'ok'
-  AND posts.expires_at > ?
   AND (? = '' OR lower(posts.username) = lower(?))
 ORDER BY COALESCE(NULLIF(seen.taken_at, 0), posts.fetched_at) DESC, posts.fetched_at DESC
 LIMIT ?
-`, now.Unix(), username, username, limit)
+`, username, username, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list gallery posts: %w", err)
 	}
@@ -188,6 +217,7 @@ ON CONFLICT(shortcode, media_type) DO UPDATE SET
   error = excluded.error,
   fetched_at = excluded.fetched_at,
   expires_at = excluded.expires_at
+WHERE posts.status <> 'ok' OR excluded.status = 'ok'
 `, post.Ref.Shortcode, post.Ref.Type, post.OriginalURL, post.Username, post.Caption, string(mediaJSON), post.Status, post.Error, post.FetchedAt.Unix(), post.ExpiresAt.Unix())
 	if err != nil {
 		return fmt.Errorf("write cache: %w", err)
@@ -207,8 +237,51 @@ func (s *Store) Delete(ctx context.Context, ref instagram.Ref) (int64, error) {
 	return count, nil
 }
 
+func (s *Store) Diagnostics(ctx context.Context, now time.Time) (Diagnostics, error) {
+	var out Diagnostics
+	if err := s.db.QueryRowContext(ctx, `
+SELECT
+  COUNT(*),
+  COALESCE(SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN status = 'ok' AND media_json <> '' AND media_json <> '[]' THEN 1 ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN status = 'ok' AND expires_at < ? THEN 1 ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN status <> 'ok' AND expires_at < ? THEN 1 ELSE 0 END), 0)
+FROM posts
+`, now.Unix(), now.Unix()).Scan(&out.Posts, &out.OKPosts, &out.OKPostsWithMedia, &out.ExpiredOKPosts, &out.ExpiredNonOKPosts); err != nil {
+		return out, fmt.Errorf("read post diagnostics: %w", err)
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM instagram_seen_media`).Scan(&out.SeenMedia); err != nil {
+		return out, fmt.Errorf("read seen media diagnostics: %w", err)
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM delivery_attempts`).Scan(&out.DeliveryAttempts); err != nil {
+		return out, fmt.Errorf("read delivery diagnostics: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT status, COUNT(*)
+FROM posts
+GROUP BY status
+ORDER BY COUNT(*) DESC, status
+`)
+	if err != nil {
+		return out, fmt.Errorf("read status diagnostics: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item StatusDiagnostics
+		if err := rows.Scan(&item.Status, &item.Count); err != nil {
+			return out, fmt.Errorf("scan status diagnostics: %w", err)
+		}
+		out.PostsByStatus = append(out.PostsByStatus, item)
+	}
+	if err := rows.Err(); err != nil {
+		return out, fmt.Errorf("read status diagnostics rows: %w", err)
+	}
+	return out, nil
+}
+
 func (s *Store) Cleanup(ctx context.Context, now time.Time) (int64, error) {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM posts WHERE expires_at < ?`, now.Unix())
+	result, err := s.db.ExecContext(ctx, `DELETE FROM posts WHERE status <> 'ok' AND expires_at < ?`, now.Unix())
 	if err != nil {
 		return 0, fmt.Errorf("cleanup cache: %w", err)
 	}

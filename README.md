@@ -2,7 +2,7 @@
 
 Loonstagram is a small Go service that rewrites public Instagram post, reel, and TV URLs into Discord-friendly share URLs.
 
-Human visitors are redirected to Instagram. Crawlers receive escaped Open Graph and Twitter Card HTML, with metadata cached in SQLite.
+Human visitors are redirected to Instagram. Crawlers receive escaped Open Graph and Twitter Card HTML, with successful metadata cached permanently in SQLite.
 
 ## Local Docker Test
 
@@ -22,7 +22,7 @@ docker compose up --build
 
 ## Production Deploy
 
-Production is configured for `https://loonstagram.com`. `www.loonstagram.com` is accepted and redirected to the apex domain.
+Production is configured for `https://loonstagram.com`. `www.loonstagram.com` is accepted too, so Discord can fetch embeds without a cross-host redirect.
 
 1. Point the DNS A record for `loonstagram.com` to the VM.
    If you want `www.loonstagram.com`, point its A record to the VM too, or add a CNAME from `www` to `loonstagram.com`.
@@ -80,7 +80,7 @@ Required:
 Optional defaults:
 
 - `LISTEN_ADDR=:3000`
-- `CACHE_SUCCESS_TTL=6h`
+- `CACHE_SUCCESS_TTL=6h` (kept for compatibility; complete successful post caches are retained permanently)
 - `CACHE_NEGATIVE_TTL=15m`
 - `CACHE_BLOCKED_TTL=5m`
 - `HTTP_CLIENT_TIMEOUT=8s`
@@ -140,3 +140,13 @@ http://localhost:8080/debug?url=https%3A%2F%2Fwww.instagram.com%2Fp%2FABC123xyz%
 The debug page performs fresh Instagram fetches, shows cache state, raw upstream bodies, extracted JSON blocks, parsed post data, media previews, and fetch or parse errors. Response headers that can carry secrets, such as `Set-Cookie`, are redacted.
 
 Private or login-only Instagram content is not supported. Metadata scraping is best effort and falls back to a minimal preview when Instagram cannot be fetched.
+
+## Cache Diagnostics
+
+When `ADMIN_TOKEN` is configured, inspect cache and automation state with:
+
+```sh
+curl -H "X-Admin-Token: $ADMIN_TOKEN" https://loonstagram.com/api/cache/status
+```
+
+This reports post counts by status, successful rows with media, expired successful rows that are still retained, expired failed rows awaiting cleanup, seen Instagram media count, delivery attempts, current automation status, and the gallery post count for the configured profile.

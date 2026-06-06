@@ -55,6 +55,108 @@ func TestCacheHitAndExpiry(t *testing.T) {
 	if ok {
 		t.Fatal("expired row should be ignored")
 	}
+
+	got, ok, err = store.GetAny(ctx, ref)
+	if err != nil {
+		t.Fatalf("GetAny() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("GetAny() ok = false, want true for expired successful post")
+	}
+	if got.Username != "Loonstagram_user" || len(got.Media) != 1 {
+		t.Fatalf("permanent cached post = %#v", got)
+	}
+}
+
+func TestCleanupPreservesExpiredSuccessfulPosts(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Unix(1000, 0)
+	okRef := instagram.Ref{Type: instagram.TypePost, Shortcode: "OK123xyz"}
+	blockedRef := instagram.Ref{Type: instagram.TypePost, Shortcode: "BAD123xyz"}
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       okRef,
+		Username:  "loonletwow",
+		Media:     []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/ok.jpg"}},
+		Status:    "ok",
+		FetchedAt: now,
+		ExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put ok error = %v", err)
+	}
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       blockedRef,
+		Status:    "blocked",
+		FetchedAt: now,
+		ExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put blocked error = %v", err)
+	}
+
+	deleted, err := store.Cleanup(ctx, now.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("Cleanup() error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("Cleanup() deleted = %d, want 1", deleted)
+	}
+	if _, ok, err := store.GetAny(ctx, okRef); err != nil {
+		t.Fatalf("GetAny ok error = %v", err)
+	} else if !ok {
+		t.Fatal("expired successful post should be retained")
+	}
+	if _, ok, err := store.GetAny(ctx, blockedRef); err != nil {
+		t.Fatalf("GetAny blocked error = %v", err)
+	} else if ok {
+		t.Fatal("expired blocked post should be deleted")
+	}
+}
+
+func TestPutDoesNotOverwriteSuccessfulPostWithFailure(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Unix(1000, 0)
+	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       ref,
+		Username:  "loonletwow",
+		Media:     []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/ok.jpg"}},
+		Status:    "ok",
+		FetchedAt: now,
+		ExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put ok error = %v", err)
+	}
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       ref,
+		Status:    "blocked",
+		Error:     "instagram blocked",
+		FetchedAt: now.Add(2 * time.Hour),
+		ExpiresAt: now.Add(2*time.Hour + time.Minute),
+	}); err != nil {
+		t.Fatalf("Put blocked error = %v", err)
+	}
+
+	got, ok, err := store.GetAny(ctx, ref)
+	if err != nil {
+		t.Fatalf("GetAny() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("cache row missing")
+	}
+	if got.Status != "ok" || got.Username != "loonletwow" || len(got.Media) != 1 {
+		t.Fatalf("successful post was overwritten: %#v", got)
+	}
 }
 
 func TestDeleteRemovesSinglePost(t *testing.T) {
@@ -136,7 +238,7 @@ func TestListGalleryPostsFiltersUsernameAndRequiresMedia(t *testing.T) {
 		}
 	}
 
-	got, err := store.ListGalleryPosts(ctx, "loonletwow", 30, now)
+	got, err := store.ListGalleryPosts(ctx, "loonletwow", 30, now.Add(2*time.Hour))
 	if err != nil {
 		t.Fatalf("ListGalleryPosts() error = %v", err)
 	}

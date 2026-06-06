@@ -136,11 +136,13 @@ func (p *Poller) check(ctx context.Context) error {
 	}
 
 	now := time.Now()
+	p.logger.Debug("automation check started", "username", settings.InstagramUsername)
 	media, err := p.profiles.FetchRecentMedia(ctx, settings.InstagramUsername, defaultFetchLimit)
 	if err != nil {
 		_ = p.store.UpdateAutomationRun(ctx, now, time.Time{}, "Instagram check failed.", sanitizeError(err))
 		return err
 	}
+	p.logger.Info("automation profile fetch complete", "username", settings.InstagramUsername, "media_count", len(media), "limit", defaultFetchLimit)
 
 	seenCount, err := p.store.InstagramSeenCount(ctx, settings.InstagramUsername)
 	if err != nil {
@@ -243,6 +245,11 @@ func seenMedia(username string, item instagram.RecentMedia, firstSeenAt, postedA
 
 func (p *Poller) ensurePostCached(ctx context.Context, item instagram.RecentMedia, now time.Time) error {
 	if p.posts == nil {
+		return nil
+	}
+	if post, ok, err := p.store.GetAny(ctx, item.Ref); err != nil {
+		return err
+	} else if ok && post.Status == "ok" && len(post.Media) > 0 {
 		return nil
 	}
 	if _, ok, err := p.store.Get(ctx, item.Ref, now); err != nil {

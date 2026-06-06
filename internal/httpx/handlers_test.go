@@ -3,6 +3,7 @@ package httpx
 import (
 	"bytes"
 	"context"
+	"errors"
 	"html/template"
 	"image"
 	"image/color"
@@ -206,6 +207,95 @@ func TestRefreshDebugCacheDeletesAndRefetchesPost(t *testing.T) {
 	}
 }
 
+func TestCanonicalStripsTrailingSlashBeforeRouteMatch(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	h, err := NewHandlers(Options{
+		PublicBaseURL:    "https://loonstagram.com",
+		CacheSuccessTTL:  time.Hour,
+		CacheNegativeTTL: time.Minute,
+		CacheBlockedTTL:  time.Minute,
+		Store:            store,
+		Scraper: &fakePostFetcher{post: &instagram.Post{
+			Username: "loonletwow",
+			Caption:  "caption",
+			Media:    []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/post.jpg"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/p/ABC123xyz/", nil)
+	req.Header.Set("User-Agent", "Discordbot/2.0")
+	rr := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "preview/p/ABC123xyz/image") {
+		t.Fatalf("embed response did not use stripped path:\n%s", rr.Body.String())
+	}
+}
+
+func TestCanonicalUsesExpiredSuccessfulCacheWithoutRefetch(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	now := time.Unix(1000, 0)
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:         ref,
+		OriginalURL: ref.OriginalURL(),
+		Username:    "loonletwow",
+		Caption:     "cached caption",
+		Media:       []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/cached.jpg"}},
+		Status:      "ok",
+		FetchedAt:   now,
+		ExpiresAt:   now.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+
+	fetcher := &fakePostFetcher{err: errors.New("should not fetch")}
+	h, err := NewHandlers(Options{
+		PublicBaseURL:    "https://loonstagram.com",
+		CacheSuccessTTL:  time.Hour,
+		CacheNegativeTTL: time.Minute,
+		CacheBlockedTTL:  time.Minute,
+		Store:            store,
+		Scraper:          fetcher,
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/p/ABC123xyz", nil)
+	req.Header.Set("User-Agent", "Discordbot/2.0")
+	rr := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if fetcher.calls != 0 {
+		t.Fatalf("fetch calls = %d, want 0", fetcher.calls)
+	}
+	if body := rr.Body.String(); !strings.Contains(body, "cached caption") || !strings.Contains(body, "preview/p/ABC123xyz/image") {
+		t.Fatalf("embed did not use cached post:\n%s", body)
+	}
+}
+
 func TestPreviewImageJPEGUsesAdaptiveSingleImageSize(t *testing.T) {
 	source := image.NewRGBA(image.Rect(0, 0, 300, 900))
 	for y := 0; y < 900; y++ {
@@ -385,6 +475,18 @@ func TestMediaEndpointCachesUpstreamBytes(t *testing.T) {
 	}
 	if upstreamCalls != 1 {
 		t.Fatalf("upstream calls = %d, want 1", upstreamCalls)
+	}
+}
+
+func TestMediaCacheKeyIncludesUpstreamTarget(t *testing.T) {
+	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	first := mediaCacheKey(ref, 1, "image", "https://scontent.cdninstagram.com/cropped.jpg")
+	second := mediaCacheKey(ref, 1, "image", "https://scontent.cdninstagram.com/full.jpg")
+	if first == second {
+		t.Fatalf("media cache key should change when upstream target changes: %q", first)
+	}
+	if !strings.HasPrefix(first, "p_ABC123xyz_1_image_") {
+		t.Fatalf("media cache key prefix = %q", first)
 	}
 }
 

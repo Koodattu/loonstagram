@@ -3,6 +3,8 @@ package httpx
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -127,6 +129,7 @@ func (h *Handlers) Routes() http.Handler {
 	mux.HandleFunc("GET /healthz", h.health)
 	mux.HandleFunc("GET /", h.home)
 	mux.HandleFunc("GET /admin", h.admin)
+	mux.HandleFunc("GET /api/cache/status", h.cacheStatus)
 	mux.HandleFunc("GET /api/gallery", h.gallery)
 	mux.HandleFunc("POST /api/convert", h.convert)
 	mux.HandleFunc("GET /p/{shortcode}", h.canonical(instagram.TypePost))
@@ -145,7 +148,7 @@ func (h *Handlers) Routes() http.Handler {
 	mux.HandleFunc("GET /debug", h.debugFromQuery)
 	mux.HandleFunc("GET /debug/{type}/{shortcode}", h.debugCanonical)
 	mux.HandleFunc("POST /debug/{type}/{shortcode}/refresh", h.refreshDebugCache)
-	return RequestLogger(h.logger, mux)
+	return RequestLogger(h.logger, StripTrailingSlash(mux))
 }
 
 func (h *Handlers) home(w http.ResponseWriter, r *http.Request) {
@@ -172,6 +175,77 @@ func (h *Handlers) admin(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+type cacheStatusResponse struct {
+	OK         bool                    `json:"ok"`
+	Now        string                  `json:"now"`
+	Cache      cache.Diagnostics       `json:"cache"`
+	Automation automationDiagnostics   `json:"automation"`
+	Gallery    cacheGalleryDiagnostics `json:"gallery"`
+}
+
+type automationDiagnostics struct {
+	InstagramUsername string `json:"instagramUsername"`
+	Enabled           bool   `json:"enabled"`
+	LastCheckedAt     string `json:"lastCheckedAt,omitempty"`
+	LastPostedAt      string `json:"lastPostedAt,omitempty"`
+	LastStatus        string `json:"lastStatus,omitempty"`
+	LastError         string `json:"lastError,omitempty"`
+}
+
+type cacheGalleryDiagnostics struct {
+	Profile string `json:"profile"`
+	Posts   int    `json:"posts"`
+}
+
+func (h *Handlers) cacheStatus(w http.ResponseWriter, r *http.Request) {
+	if !h.authorizeAdmin(w, r) {
+		return
+	}
+
+	now := time.Now()
+	diagnostics, err := h.store.Diagnostics(r.Context(), now)
+	if err != nil {
+		h.logger.Error("load cache diagnostics", "error", err)
+		writeJSON(w, http.StatusInternalServerError, automationResponse{OK: false, Error: "Could not load cache diagnostics"})
+		return
+	}
+	settings, err := h.store.GetAutomationSettings(r.Context())
+	if err != nil {
+		h.logger.Error("load automation diagnostics", "error", err)
+		writeJSON(w, http.StatusInternalServerError, automationResponse{OK: false, Error: "Could not load automation settings"})
+		return
+	}
+
+	galleryProfile := defaultGalleryUsername
+	if settings.InstagramUsername != "" {
+		galleryProfile = settings.InstagramUsername
+	}
+	galleryPosts, err := h.store.ListGalleryPosts(r.Context(), galleryProfile, 120, now)
+	if err != nil {
+		h.logger.Error("load gallery diagnostics", "profile", galleryProfile, "error", err)
+		writeJSON(w, http.StatusInternalServerError, automationResponse{OK: false, Error: "Could not load gallery diagnostics"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, cacheStatusResponse{
+		OK:    true,
+		Now:   formatTime(now),
+		Cache: diagnostics,
+		Automation: automationDiagnostics{
+			InstagramUsername: settings.InstagramUsername,
+			Enabled:           settings.Enabled,
+			LastCheckedAt:     formatTime(settings.LastCheckedAt),
+			LastPostedAt:      formatTime(settings.LastPostedAt),
+			LastStatus:        settings.LastStatus,
+			LastError:         settings.LastError,
+		},
+		Gallery: cacheGalleryDiagnostics{
+			Profile: galleryProfile,
+			Posts:   len(galleryPosts),
+		},
+	})
 }
 
 type convertRequest struct {
@@ -214,13 +288,13 @@ func (h *Handlers) convert(w http.ResponseWriter, r *http.Request) {
 const defaultGalleryUsername = "loonletwow"
 
 type galleryResponse struct {
-	OK       bool          `json:"ok"`
-	Profile  string        `json:"profile"`
-	Source   string        `json:"source"`
-	Items    []galleryItem `json:"items"`
-	Error    string        `json:"error,omitempty"`
-	Empty    string        `json:"empty,omitempty"`
-	Updated  string        `json:"updated,omitempty"`
+	OK      bool          `json:"ok"`
+	Profile string        `json:"profile"`
+	Source  string        `json:"source"`
+	Items   []galleryItem `json:"items"`
+	Error   string        `json:"error,omitempty"`
+	Empty   string        `json:"empty,omitempty"`
+	Updated string        `json:"updated,omitempty"`
 }
 
 type galleryItem struct {
@@ -273,7 +347,9 @@ func (h *Handlers) gallery(w http.ResponseWriter, r *http.Request) {
 	empty := ""
 	if len(items) == 0 {
 		empty = "No cached gallery posts yet. Create a fixed URL and let Discord preview it for this profile."
+		h.logger.Info("gallery empty", "profile", username, "source", source, "cached_posts", len(posts))
 	} else {
+		h.logger.Info("gallery loaded", "profile", username, "source", source, "cached_posts", len(posts), "items", len(items))
 		h.warmGalleryMedia(posts)
 	}
 	writeJSON(w, http.StatusOK, galleryResponse{
@@ -362,7 +438,7 @@ func (h *Handlers) warmGalleryMedia(posts []instagram.Post) {
 			if target == "" || !safeRemoteURL(target) {
 				continue
 			}
-			key := mediaCacheKey(post.Ref, mediaIndex+1, "image")
+			key := mediaCacheKey(post.Ref, mediaIndex+1, "image", target)
 			if seen[key] {
 				continue
 			}
@@ -803,7 +879,7 @@ func (h *Handlers) media(kind string) http.HandlerFunc {
 			return
 		}
 
-		cacheKey := mediaCacheKey(ref, index, kind)
+		cacheKey := mediaCacheKey(ref, index, kind, target)
 		w.Header().Set("Cache-Control", "public, max-age=300")
 		if h.mediaCache != nil {
 			if served, err := h.serveCachedMedia(w, r, cacheKey); err != nil {
@@ -928,6 +1004,15 @@ func (h *Handlers) previewImage(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) getOrFetchPost(ctx context.Context, ref instagram.Ref) (*instagram.Post, error) {
 	now := time.Now()
+	cachedAny, cachedAnyOK, err := h.store.GetAny(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if cachedAnyOK && cachedAny.Status == "ok" && !shouldRefreshCachedPost(cachedAny) {
+		setCacheStatus(ctx, "hit")
+		return cachedAny, nil
+	}
+
 	if post, ok, err := h.store.Get(ctx, ref, now); err != nil {
 		return post, err
 	} else if ok {
@@ -951,10 +1036,30 @@ func (h *Handlers) getOrFetchPost(ctx context.Context, ref instagram.Ref) (*inst
 		} else if ok {
 			setCacheStatus(ctx, "stale")
 		}
+		if post, ok, err := h.store.GetAny(ctx, ref); err != nil {
+			return post, err
+		} else if ok && post.Status == "ok" && !shouldRefreshCachedPost(post) {
+			setCacheStatus(ctx, "hit")
+			return post, nil
+		} else if ok && post.Status == "ok" {
+			cachedAny = post
+			cachedAnyOK = true
+			setCacheStatus(ctx, "stale")
+		}
 
 		start := time.Now()
 		post, err := h.scraper.FetchPost(ctx, ref)
 		if err != nil {
+			if cachedAnyOK && cachedAny.Status == "ok" {
+				h.logger.Warn("scrape failed, preserving cached ok post",
+					"shortcode", ref.Shortcode,
+					"media_type", ref.Type,
+					"duration_ms", time.Since(start).Milliseconds(),
+					"error", sanitizeLogError(err),
+				)
+				setCacheStatus(ctx, "stale_hit")
+				return cachedAny, nil
+			}
 			status := "error"
 			ttl := h.cacheNegativeTTL
 			var fetchErr instagram.FetchError
@@ -1304,8 +1409,9 @@ func mediaTarget(kind string, item instagram.MediaItem) (string, string) {
 	return "", ""
 }
 
-func mediaCacheKey(ref instagram.Ref, index int, kind string) string {
-	return fmt.Sprintf("%s_%s_%d_%s", ref.Type, ref.Shortcode, index, kind)
+func mediaCacheKey(ref instagram.Ref, index int, kind, target string) string {
+	sum := sha256.Sum256([]byte(target))
+	return fmt.Sprintf("%s_%s_%d_%s_%s", ref.Type, ref.Shortcode, index, kind, hex.EncodeToString(sum[:])[:16])
 }
 
 func safeRemoteURL(raw string) bool {

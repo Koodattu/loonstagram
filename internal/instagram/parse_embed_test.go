@@ -121,6 +121,35 @@ func TestParseEmbedHTMLExtractsEscapedShortcodeMedia(t *testing.T) {
 	}
 }
 
+func TestParseEmbedHTMLPrefersLargestDisplayResource(t *testing.T) {
+	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
+	body := `
+<script>
+  window.__data = {"graphql":{"shortcode_media":{
+    "owner":{"username":"loonletwow"},
+    "edge_media_to_caption":{"edges":[{"node":{"text":"Gliding into the weekend"}}]},
+    "display_url":"https://scontent.cdninstagram.com/cropped.jpg",
+    "thumbnail_src":"https://scontent.cdninstagram.com/thumb.jpg",
+    "display_resources":[
+      {"src":"https://scontent.cdninstagram.com/small.jpg","config_width":320,"config_height":400},
+      {"src":"https://scontent.cdninstagram.com/full.jpg","config_width":1440,"config_height":1080}
+    ],
+    "dimensions":{"width":1440,"height":1080}
+  }}};
+</script>`
+
+	post, err := ParseEmbedHTML(ref, body)
+	if err != nil {
+		t.Fatalf("ParseEmbedHTML() error = %v", err)
+	}
+	if len(post.Media) != 1 {
+		t.Fatalf("Media length = %d", len(post.Media))
+	}
+	if post.Media[0].URL != "https://scontent.cdninstagram.com/full.jpg" {
+		t.Fatalf("Media URL = %q", post.Media[0].URL)
+	}
+}
+
 func TestParseEmbedHTMLExtractsInstagramAPIItemsCarousel(t *testing.T) {
 	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
 	body := `

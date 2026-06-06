@@ -140,7 +140,7 @@ func TestPollerDoesNotRefetchCachedInitialPosts(t *testing.T) {
 		Media:     []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/cached.jpg"}},
 		Status:    "ok",
 		FetchedAt: now,
-		ExpiresAt: now.Add(time.Hour),
+		ExpiresAt: now.Add(-time.Hour),
 	}); err != nil {
 		t.Fatalf("Put() error = %v", err)
 	}
