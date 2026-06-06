@@ -58,6 +58,11 @@ func NewClient(cfg ClientConfig) *Client {
 func (c *Client) FetchPost(ctx context.Context, ref Ref) (*Post, error) {
 	post, err := c.fetchPostPage(ctx, ref, ref.EmbedURL())
 	if err == nil {
+		if croppedMediaCount(post) > 0 {
+			if fallbackPost, fallbackErr := c.fetchPostPage(ctx, ref, ref.OriginalURL()); fallbackErr == nil && betterMediaPost(fallbackPost, post) {
+				return fallbackPost, nil
+			}
+		}
 		return post, nil
 	}
 
@@ -68,6 +73,34 @@ func (c *Client) FetchPost(ctx context.Context, ref Ref) (*Post, error) {
 		}
 	}
 	return nil, err
+}
+
+func betterMediaPost(candidate, current *Post) bool {
+	if candidate == nil || len(candidate.Media) == 0 {
+		return false
+	}
+	if current == nil || len(current.Media) == 0 {
+		return true
+	}
+	candidateCropped := croppedMediaCount(candidate)
+	currentCropped := croppedMediaCount(current)
+	if candidateCropped != currentCropped {
+		return candidateCropped < currentCropped
+	}
+	return len(candidate.Media) > len(current.Media)
+}
+
+func croppedMediaCount(post *Post) int {
+	if post == nil {
+		return 0
+	}
+	count := 0
+	for _, item := range post.Media {
+		if LooksCroppedMediaURL(item.URL) || LooksCroppedMediaURL(item.PosterURL) {
+			count++
+		}
+	}
+	return count
 }
 
 func (c *Client) fetchPostPage(ctx context.Context, ref Ref, target string) (*Post, error) {
