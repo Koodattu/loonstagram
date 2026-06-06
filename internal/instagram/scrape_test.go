@@ -45,3 +45,48 @@ func TestFetchPostFallsBackToOriginalPageAfterEmbedParseFailure(t *testing.T) {
 		t.Fatalf("Media = %#v", post.Media)
 	}
 }
+
+func TestFetchPostFallsBackToOriginalPageAfterCroppedEmbedMedia(t *testing.T) {
+	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
+	client := NewClient(ClientConfig{Timeout: time.Second})
+	client.httpClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := `
+<script>
+  window.__data = {"items":[{
+    "user":{"username":"loonletwow"},
+    "caption":{"text":"caption"},
+    "media_type":1,
+    "image_versions2":{"candidates":[
+      {"url":"https://scontent.cdninstagram.com/cropped.jpg?stp=c288.0.864.864a_dst-jpg_e35_s640x640_tt6","width":864,"height":864}
+    ]}
+  }]};
+</script>`
+		if !strings.Contains(req.URL.Path, "/embed/") {
+			body = `
+<script>
+  window.__data = {"items":[{
+    "user":{"username":"loonletwow"},
+    "caption":{"text":"caption"},
+    "media_type":1,
+    "image_versions2":{"candidates":[
+      {"url":"https://scontent.cdninstagram.com/full.jpg?stp=dst-jpg_e35_tt6","width":657,"height":657}
+    ]}
+  }]};
+</script>`
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    req,
+		}, nil
+	})
+
+	post, err := client.FetchPost(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("FetchPost() error = %v", err)
+	}
+	if len(post.Media) != 1 || post.Media[0].URL != "https://scontent.cdninstagram.com/full.jpg?stp=dst-jpg_e35_tt6" {
+		t.Fatalf("Media = %#v", post.Media)
+	}
+}
