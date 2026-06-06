@@ -546,6 +546,44 @@ func TestMediaCacheKeyIncludesUpstreamTarget(t *testing.T) {
 	}
 }
 
+func TestDebugCandidatesMarksSelectedMedia(t *testing.T) {
+	h := &Handlers{}
+	selectedURL := "https://scontent.cdninstagram.com/full.jpg?stp=dst-jpg_e35_s1080x1080_tt6"
+	report := instagram.DebugReport{
+		Fetches: []instagram.DebugFetch{{
+			Name: "original_page",
+			ExtractedJSON: []instagram.DebugJSONBlock{{
+				Key:   "items",
+				Index: 1,
+				Raw: `[
+					{
+						"image_versions2": {
+							"candidates": [
+								{"url": "https://scontent.cdninstagram.com/cropped.jpg?stp=c288.0.864.864a_dst-jpg_e35_s640x640_tt6", "width": 864, "height": 864},
+								{"url": "https://scontent.cdninstagram.com/full.jpg?stp=dst-jpg_e35_s1080x1080_tt6", "width": 1080, "height": 1080}
+							]
+						}
+					}
+				]`,
+			}},
+		}},
+	}
+	post := &instagram.Post{
+		Media: []instagram.MediaItem{{Kind: "image", URL: selectedURL}},
+	}
+
+	candidates := h.debugCandidates(report, post)
+	if len(candidates) != 2 {
+		t.Fatalf("candidate count = %d, want 2: %#v", len(candidates), candidates)
+	}
+	if candidates[0].Selected || !candidates[0].Cropped {
+		t.Fatalf("first candidate = %#v", candidates[0])
+	}
+	if !candidates[1].Selected || candidates[1].Cropped {
+		t.Fatalf("second candidate = %#v", candidates[1])
+	}
+}
+
 func solidImage(width, height int, c color.Color) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	for y := 0; y < height; y++ {

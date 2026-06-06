@@ -121,6 +121,31 @@
         background: #111217;
       }
 
+      .candidate-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .candidate {
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel-strong);
+        overflow-wrap: anywhere;
+      }
+
+      .candidate.selected {
+        border-color: color-mix(in srgb, var(--accent), var(--border) 45%);
+      }
+
+      .candidate-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+
       .embed-preview {
         display: block;
         width: min(100%, 560px);
@@ -283,6 +308,24 @@
               <dt>Raw public image</dt>
               <dd>{{if .PublicURL}}<a href="{{.PublicURL}}">{{.PublicURL}}</a>{{else}}none{{end}}</dd>
             </dl>
+          </article>
+          {{end}}
+        </div>
+      </section>
+      {{end}}
+
+      {{if .Candidates}}
+      <section class="section">
+        <h2>Image Candidates</h2>
+        <div class="candidate-list">
+          {{range .Candidates}}
+          <article class="candidate {{if .Selected}}selected{{end}}">
+            <div class="candidate-meta">
+              <span class="pill">{{if .Cropped}}cropped{{else}}uncropped{{end}}</span>
+              {{if .Selected}}<span class="pill">selected</span>{{end}}
+              <span class="muted">{{.Source}}{{if .Width}} · {{.Width}} x {{.Height}}{{end}}</span>
+            </div>
+            <a href="{{.URL}}">{{.URL}}</a>
           </article>
           {{end}}
         </div>

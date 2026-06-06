@@ -617,6 +617,7 @@ type debugPageData struct {
 	ParsedPost  *instagram.Post
 	Embed       embedData
 	Media       []debugMediaData
+	Candidates  []debugCandidateData
 	DumpJSON    string
 }
 
@@ -648,6 +649,15 @@ type debugMediaData struct {
 	ContentType     string `json:"contentType,omitempty"`
 }
 
+type debugCandidateData struct {
+	Source   string `json:"source"`
+	URL      string `json:"url"`
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+	Cropped  bool   `json:"cropped"`
+	Selected bool   `json:"selected"`
+}
+
 func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref instagram.Ref) {
 	debugger, ok := h.scraper.(PostDebugger)
 	if !ok {
@@ -677,6 +687,7 @@ func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref insta
 		data.Embed = h.embedData(parsedPost)
 		data.Media = h.debugMedia(parsedPost)
 	}
+	data.Candidates = h.debugCandidates(fresh, parsedPost)
 
 	dump := struct {
 		Ref         instagram.Ref         `json:"ref"`
@@ -687,6 +698,7 @@ func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref insta
 		Fresh       instagram.DebugReport `json:"fresh"`
 		Embed       embedData             `json:"embedData"`
 		Media       []debugMediaData      `json:"media"`
+		Candidates  []debugCandidateData  `json:"candidates"`
 		ParsedPost  *instagram.Post       `json:"parsedPost,omitempty"`
 	}{
 		Ref:         ref,
@@ -697,6 +709,7 @@ func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref insta
 		Fresh:       fresh,
 		Embed:       data.Embed,
 		Media:       data.Media,
+		Candidates:  data.Candidates,
 		ParsedPost:  parsedPost,
 	}
 	if dumpJSON, err := json.MarshalIndent(dump, "", "  "); err == nil {
@@ -801,6 +814,34 @@ func (h *Handlers) debugMedia(post *instagram.Post) []debugMediaData {
 			RemoteURL:       remoteURL,
 			PublicURL:       publicURL,
 			ContentType:     contentType,
+		})
+	}
+	return out
+}
+
+func (h *Handlers) debugCandidates(report instagram.DebugReport, post *instagram.Post) []debugCandidateData {
+	selected := make(map[string]bool)
+	if post != nil {
+		for _, item := range post.Media {
+			if imageURL, _ := mediaTarget("image", item); imageURL != "" {
+				selected[imageURL] = true
+			}
+			if videoURL, _ := mediaTarget("video", item); videoURL != "" {
+				selected[videoURL] = true
+			}
+		}
+	}
+
+	candidates := instagram.ExtractDebugMediaCandidates(report)
+	out := make([]debugCandidateData, 0, len(candidates))
+	for _, candidate := range candidates {
+		out = append(out, debugCandidateData{
+			Source:   candidate.Source,
+			URL:      candidate.URL,
+			Width:    candidate.Width,
+			Height:   candidate.Height,
+			Cropped:  candidate.Cropped,
+			Selected: selected[candidate.URL],
 		})
 	}
 	return out

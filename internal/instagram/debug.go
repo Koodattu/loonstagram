@@ -5,11 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
+
+var debugImageURLPattern = regexp.MustCompile(`https?(?::|\\u003a)[/\\]+scontent\.cdninstagram\.com[^"'<>\s]+`)
 
 type DebugReport struct {
 	GeneratedAt time.Time    `json:"generatedAt"`
@@ -41,6 +45,14 @@ type DebugJSONBlock struct {
 	Bytes  int    `json:"bytes"`
 	Raw    string `json:"raw"`
 	Pretty string `json:"pretty,omitempty"`
+}
+
+type DebugMediaCandidate struct {
+	Source  string `json:"source"`
+	URL     string `json:"url"`
+	Width   int    `json:"width,omitempty"`
+	Height  int    `json:"height,omitempty"`
+	Cropped bool   `json:"cropped"`
 }
 
 func (c *Client) DebugFetchPost(ctx context.Context, ref Ref) DebugReport {
@@ -177,6 +189,97 @@ func prettyJSON(raw string) string {
 		return ""
 	}
 	return buf.String()
+}
+
+func ExtractDebugMediaCandidates(report DebugReport) []DebugMediaCandidate {
+	out := make([]DebugMediaCandidate, 0)
+	seen := make(map[string]bool)
+	for _, fetch := range report.Fetches {
+		for _, raw := range debugImageURLPattern.FindAllString(fetch.Body, -1) {
+			appendDebugMediaCandidate(fetch.Name+" body", normalizeDebugMediaURL(raw), 0, 0, seen, &out)
+		}
+		for _, block := range fetch.ExtractedJSON {
+			raw := block.Raw
+			if decoded, ok := decodeEscapedJSONValue(raw); ok {
+				raw = decoded
+			}
+			var value any
+			if err := json.Unmarshal([]byte(raw), &value); err != nil {
+				continue
+			}
+			source := fmt.Sprintf("%s %s #%d", fetch.Name, block.Key, block.Index)
+			appendDebugMediaCandidates(source, value, seen, &out)
+		}
+	}
+	return out
+}
+
+func appendDebugMediaCandidates(source string, value any, seen map[string]bool, out *[]DebugMediaCandidate) {
+	switch typed := value.(type) {
+	case []any:
+		for _, item := range typed {
+			appendDebugMediaCandidates(source, item, seen, out)
+		}
+	case map[string]any:
+		width := firstPositiveInt(
+			asInt(typed["width"]),
+			asInt(typed["config_width"]),
+			asInt(typed["original_width"]),
+		)
+		height := firstPositiveInt(
+			asInt(typed["height"]),
+			asInt(typed["config_height"]),
+			asInt(typed["original_height"]),
+		)
+		for _, key := range []string{"url", "src", "display_url", "display_uri", "thumbnail_src", "thumbnail_url"} {
+			appendDebugMediaCandidate(source, asString(typed[key]), width, height, seen, out)
+		}
+		for _, child := range typed {
+			appendDebugMediaCandidates(source, child, seen, out)
+		}
+	}
+}
+
+func normalizeDebugMediaURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.ReplaceAll(raw, `\u003a`, ":")
+	raw = strings.ReplaceAll(raw, `\/`, "/")
+	raw = strings.ReplaceAll(raw, `\u0026`, "&")
+	return html.UnescapeString(raw)
+}
+
+func appendDebugMediaCandidate(source, raw string, width, height int, seen map[string]bool, out *[]DebugMediaCandidate) {
+	raw = normalizeDebugMediaURL(raw)
+	if !looksLikeImageURL(raw) || seen[raw] {
+		return
+	}
+	seen[raw] = true
+	*out = append(*out, DebugMediaCandidate{
+		Source:  source,
+		URL:     raw,
+		Width:   width,
+		Height:  height,
+		Cropped: LooksCroppedMediaURL(raw),
+	})
+}
+
+func looksLikeImageURL(raw string) bool {
+	if !strings.Contains(raw, "cdninstagram.com/") {
+		return false
+	}
+	lower := strings.ToLower(raw)
+	return strings.Contains(lower, ".jpg") ||
+		strings.Contains(lower, ".jpeg") ||
+		strings.Contains(lower, ".webp")
+}
+
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func redactedHeaders(headers http.Header) map[string][]string {
