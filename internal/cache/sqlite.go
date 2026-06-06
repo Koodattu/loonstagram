@@ -80,7 +80,48 @@ func (s *Store) migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, string(schema)); err != nil {
 		return fmt.Errorf("migrate sqlite: %w", err)
 	}
+	if err := s.ensureAutomationSettingsColumns(ctx); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *Store) ensureAutomationSettingsColumns(ctx context.Context) error {
+	columns, err := s.tableColumns(ctx, "automation_settings")
+	if err != nil {
+		return err
+	}
+	if !columns["poll_interval_minutes"] {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE automation_settings ADD COLUMN poll_interval_minutes INTEGER NOT NULL DEFAULT 30`); err != nil {
+			return fmt.Errorf("add automation poll interval column: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) tableColumns(ctx context.Context, table string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return nil, fmt.Errorf("read %s columns: %w", table, err)
+	}
+	defer rows.Close()
+
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return nil, fmt.Errorf("scan %s columns: %w", table, err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read %s column rows: %w", table, err)
+	}
+	return columns, nil
 }
 
 func (s *Store) Get(ctx context.Context, ref instagram.Ref, now time.Time) (*instagram.Post, bool, error) {

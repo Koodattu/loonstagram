@@ -33,6 +33,7 @@ const instagramForm = document.querySelector("#instagram-form");
 const instagramInput = document.querySelector("#instagram-username");
 const instagramCurrent = document.querySelector("#instagram-current");
 const automationEnabled = document.querySelector("#automation-enabled");
+const pollIntervalInput = document.querySelector("#poll-interval");
 const instagramSave = document.querySelector("#instagram-save");
 const discordForm = document.querySelector("#discord-form");
 const discordWebhook = document.querySelector("#discord-webhook");
@@ -154,6 +155,9 @@ function updateAutomationUI(payload) {
   }
   instagramInput.value = payload.instagramUsername || "";
   automationEnabled.checked = Boolean(payload.enabled);
+  if (pollIntervalInput) {
+    pollIntervalInput.value = String(payload.pollIntervalMinutes || 30);
+  }
   instagramCurrent.textContent = payload.instagramUsername ? `@${payload.instagramUsername}` : "Not configured";
 
   discordCurrent.textContent = payload.discordConnected
@@ -674,6 +678,7 @@ instagramForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({
         instagramUsername: instagramInput.value.trim(),
         enabled: automationEnabled.checked,
+        pollIntervalMinutes: Number.parseInt(pollIntervalInput ? pollIntervalInput.value : "30", 10) || 30,
       }),
     });
     const payload = await readJSON(response);

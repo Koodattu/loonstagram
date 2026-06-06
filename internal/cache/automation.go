@@ -9,19 +9,20 @@ import (
 )
 
 type AutomationSettings struct {
-	InstagramUsername  string
-	DiscordWebhookURL  string
-	DiscordWebhookID   string
-	DiscordWebhookName string
-	DiscordChannelID   string
-	DiscordChannelName string
-	DiscordGuildID     string
-	Enabled            bool
-	LastCheckedAt      time.Time
-	LastPostedAt       time.Time
-	LastStatus         string
-	LastError          string
-	UpdatedAt          time.Time
+	InstagramUsername   string
+	DiscordWebhookURL   string
+	DiscordWebhookID    string
+	DiscordWebhookName  string
+	DiscordChannelID    string
+	DiscordChannelName  string
+	DiscordGuildID      string
+	Enabled             bool
+	PollIntervalMinutes int
+	LastCheckedAt       time.Time
+	LastPostedAt        time.Time
+	LastStatus          string
+	LastError           string
+	UpdatedAt           time.Time
 }
 
 type DiscordWebhook struct {
@@ -47,7 +48,7 @@ type SeenMedia struct {
 func (s *Store) GetAutomationSettings(ctx context.Context) (AutomationSettings, error) {
 	row := s.db.QueryRowContext(ctx, `
 SELECT instagram_username, discord_webhook_url, discord_webhook_id, discord_webhook_name,
-  discord_channel_id, discord_channel_name, discord_guild_id, enabled, last_checked_at,
+  discord_channel_id, discord_channel_name, discord_guild_id, enabled, poll_interval_minutes, last_checked_at,
   last_posted_at, last_status, last_error, updated_at
 FROM automation_settings
 WHERE id = 1
@@ -65,6 +66,7 @@ WHERE id = 1
 		&settings.DiscordChannelName,
 		&settings.DiscordGuildID,
 		&enabled,
+		&settings.PollIntervalMinutes,
 		&lastCheckedAt,
 		&lastPostedAt,
 		&settings.LastStatus,
@@ -78,26 +80,33 @@ WHERE id = 1
 	}
 
 	settings.Enabled = enabled == 1
+	if settings.PollIntervalMinutes <= 0 {
+		settings.PollIntervalMinutes = 30
+	}
 	settings.LastCheckedAt = unixTime(lastCheckedAt)
 	settings.LastPostedAt = unixTime(lastPostedAt)
 	settings.UpdatedAt = unixTime(updatedAt)
 	return settings, nil
 }
 
-func (s *Store) SaveAutomationConfig(ctx context.Context, username string, enabled bool, now time.Time) error {
+func (s *Store) SaveAutomationConfig(ctx context.Context, username string, enabled bool, pollIntervalMinutes int, now time.Time) error {
 	enabledValue := 0
 	if enabled {
 		enabledValue = 1
 	}
+	if pollIntervalMinutes <= 0 {
+		pollIntervalMinutes = 30
+	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO automation_settings (id, instagram_username, enabled, updated_at)
-VALUES (1, ?, ?, ?)
+INSERT INTO automation_settings (id, instagram_username, enabled, poll_interval_minutes, updated_at)
+VALUES (1, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
   instagram_username = excluded.instagram_username,
   enabled = excluded.enabled,
+  poll_interval_minutes = excluded.poll_interval_minutes,
   last_error = '',
   updated_at = excluded.updated_at
-`, username, enabledValue, now.Unix())
+`, username, enabledValue, pollIntervalMinutes, now.Unix())
 	if err != nil {
 		return fmt.Errorf("write automation config: %w", err)
 	}

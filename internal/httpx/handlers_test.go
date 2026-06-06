@@ -360,7 +360,7 @@ func TestGalleryUsesConfiguredProfileAndLocalMediaURLs(t *testing.T) {
 	}
 	defer store.Close()
 
-	if err := store.SaveAutomationConfig(ctx, "loonletwow", false, time.Now()); err != nil {
+	if err := store.SaveAutomationConfig(ctx, "loonletwow", false, 30, time.Now()); err != nil {
 		t.Fatalf("SaveAutomationConfig() error = %v", err)
 	}
 	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
@@ -420,7 +420,7 @@ func TestRefreshGalleryFetchesRecentPosts(t *testing.T) {
 	}
 	defer store.Close()
 
-	if err := store.SaveAutomationConfig(ctx, "loonletwow", false, time.Now()); err != nil {
+	if err := store.SaveAutomationConfig(ctx, "loonletwow", false, 30, time.Now()); err != nil {
 		t.Fatalf("SaveAutomationConfig() error = %v", err)
 	}
 	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
@@ -465,6 +465,62 @@ func TestRefreshGalleryFetchesRecentPosts(t *testing.T) {
 	if body := rr.Body.String(); !strings.Contains(body, `"shortcode":"ABC123xyz"`) ||
 		!strings.Contains(body, `"imageUrl":"https://loonstagram.com/media/p/ABC123xyz/1/image"`) {
 		t.Fatalf("refresh response missing gallery item:\n%s", body)
+	}
+}
+
+func TestRefreshGalleryCooldownAfterBlockedProfileFetch(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	if err := store.SaveAutomationConfig(ctx, "loonletwow", false, 30, time.Now()); err != nil {
+		t.Fatalf("SaveAutomationConfig() error = %v", err)
+	}
+	profiles := &fakeProfileFetcher{
+		err: instagram.ProfileFetchError{Kind: instagram.FetchErrorBlocked, Message: "instagram profile fetch blocked"},
+	}
+	h, err := NewHandlers(Options{
+		PublicBaseURL:    "https://loonstagram.com",
+		CacheSuccessTTL:  time.Hour,
+		CacheNegativeTTL: time.Minute,
+		CacheBlockedTTL:  time.Minute,
+		AdminToken:       "secret",
+		Store:            store,
+		Scraper:          &fakePostFetcher{},
+		Profiles:         profiles,
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+
+	first := httptest.NewRequest(http.MethodPost, "/api/gallery/refresh", nil)
+	first.Header.Set("X-Admin-Token", "secret")
+	firstRecorder := httptest.NewRecorder()
+	h.Routes().ServeHTTP(firstRecorder, first)
+
+	if firstRecorder.Code != http.StatusBadGateway {
+		t.Fatalf("first status = %d, want %d: %s", firstRecorder.Code, http.StatusBadGateway, firstRecorder.Body.String())
+	}
+	if profiles.calls != 1 {
+		t.Fatalf("profile fetch calls after first request = %d, want 1", profiles.calls)
+	}
+
+	second := httptest.NewRequest(http.MethodPost, "/api/gallery/refresh", nil)
+	second.Header.Set("X-Admin-Token", "secret")
+	secondRecorder := httptest.NewRecorder()
+	h.Routes().ServeHTTP(secondRecorder, second)
+
+	if secondRecorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("second status = %d, want %d: %s", secondRecorder.Code, http.StatusTooManyRequests, secondRecorder.Body.String())
+	}
+	if profiles.calls != 1 {
+		t.Fatalf("profile fetch calls after cooldown request = %d, want 1", profiles.calls)
+	}
+	if !strings.Contains(secondRecorder.Body.String(), "cooling down") {
+		t.Fatalf("second response should explain cooldown:\n%s", secondRecorder.Body.String())
 	}
 }
 
@@ -621,11 +677,15 @@ func (f *fakePostFetcher) FetchPost(ctx context.Context, ref instagram.Ref) (*in
 
 type fakeProfileFetcher struct {
 	media []instagram.RecentMedia
+	err   error
 	calls int
 }
 
 func (f *fakeProfileFetcher) FetchRecentMedia(ctx context.Context, username string, limit int) ([]instagram.RecentMedia, error) {
 	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
 	return f.media, nil
 }
 

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS automation_settings (
   discord_channel_name TEXT NOT NULL DEFAULT '',
   discord_guild_id TEXT NOT NULL DEFAULT '',
   enabled INTEGER NOT NULL DEFAULT 0,
+  poll_interval_minutes INTEGER NOT NULL DEFAULT 30,
   last_checked_at INTEGER NOT NULL DEFAULT 0,
   last_posted_at INTEGER NOT NULL DEFAULT 0,
   last_status TEXT NOT NULL DEFAULT '',

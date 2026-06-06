@@ -14,9 +14,11 @@ import (
 )
 
 const (
-	defaultPollInterval = 2 * time.Minute
+	defaultPollInterval = 30 * time.Minute
 	defaultFetchLimit   = 24
 	maxPostsPerPoll     = 5
+	minPollInterval     = 5 * time.Minute
+	maxPollInterval     = 24 * time.Hour
 )
 
 type ProfileFetcher interface {
@@ -97,7 +99,7 @@ func (p *Poller) Run(ctx context.Context) {
 			return
 		case <-timer.C:
 			p.checkAndLog(ctx)
-			timer.Reset(p.interval)
+			timer.Reset(p.nextInterval(ctx))
 		}
 	}
 }
@@ -115,6 +117,39 @@ func (p *Poller) checkAndLog(ctx context.Context) {
 	}
 }
 
+func (p *Poller) nextInterval(ctx context.Context) time.Duration {
+	interval := p.interval
+	if p.store != nil {
+		if settings, err := p.store.GetAutomationSettings(ctx); err == nil {
+			interval = pollIntervalDuration(settings.PollIntervalMinutes, interval)
+		}
+	}
+	return pollIntervalDuration(0, interval)
+}
+
+func pollIntervalDuration(minutes int, fallback time.Duration) time.Duration {
+	if minutes > 0 {
+		interval := time.Duration(minutes) * time.Minute
+		if interval < minPollInterval {
+			return minPollInterval
+		}
+		if interval > maxPollInterval {
+			return maxPollInterval
+		}
+		return interval
+	}
+	if fallback <= 0 {
+		return defaultPollInterval
+	}
+	if fallback < minPollInterval {
+		return minPollInterval
+	}
+	if fallback > maxPollInterval {
+		return maxPollInterval
+	}
+	return fallback
+}
+
 func (p *Poller) check(ctx context.Context) error {
 	settings, err := p.store.GetAutomationSettings(ctx)
 	if err != nil {
@@ -126,6 +161,11 @@ func (p *Poller) check(ctx context.Context) error {
 	if settings.InstagramUsername == "" {
 		return p.store.UpdateAutomationRun(ctx, time.Now(), time.Time{}, "Automation needs an Instagram profile.", "")
 	}
+	now := time.Now()
+	if nextAt, ok := profileFetchCoolingDown(settings, now); ok {
+		p.logger.Debug("automation profile fetch skipped during cooldown", "username", settings.InstagramUsername, "next_retry_at", nextAt.UTC().Format(time.RFC3339))
+		return nil
+	}
 	webhookURL := ""
 	if settings.DiscordWebhookURL != "" {
 		webhookURL, err = secret.OpenString(p.secretKey, settings.DiscordWebhookURL)
@@ -135,7 +175,6 @@ func (p *Poller) check(ctx context.Context) error {
 		}
 	}
 
-	now := time.Now()
 	p.logger.Debug("automation check started", "username", settings.InstagramUsername)
 	media, err := p.profiles.FetchRecentMedia(ctx, settings.InstagramUsername, defaultFetchLimit)
 	if err != nil {
@@ -224,6 +263,17 @@ func (p *Poller) check(ctx context.Context) error {
 		status = fmt.Sprintf("Cached %d new Instagram posts. Discord is not connected.", cachedOnly)
 	}
 	return p.store.UpdateAutomationRun(ctx, now, postedAt, status, "")
+}
+
+func profileFetchCoolingDown(settings cache.AutomationSettings, now time.Time) (time.Time, bool) {
+	if settings.LastCheckedAt.IsZero() || settings.LastError != "instagram profile fetch blocked" {
+		return time.Time{}, false
+	}
+	nextAt := settings.LastCheckedAt.Add(pollIntervalDuration(settings.PollIntervalMinutes, defaultPollInterval))
+	if now.Before(nextAt) {
+		return nextAt, true
+	}
+	return time.Time{}, false
 }
 
 func seenMedia(username string, item instagram.RecentMedia, firstSeenAt, postedAt time.Time, skipped bool) cache.SeenMedia {

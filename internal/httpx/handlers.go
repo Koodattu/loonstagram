@@ -343,17 +343,37 @@ func (h *Handlers) refreshGallery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username, _, err := h.galleryUsername(r.Context())
+	settings, err := h.store.GetAutomationSettings(r.Context())
 	if err != nil {
 		h.logger.Error("load gallery settings", "error", err)
 		writeJSON(w, http.StatusInternalServerError, galleryResponse{OK: false, Error: "Could not load gallery settings"})
 		return
 	}
+	username := defaultGalleryUsername
+	if settings.InstagramUsername != "" {
+		username = settings.InstagramUsername
+	}
 
 	now := time.Now()
+	if nextAt, ok := profileRefreshCoolingDown(settings, now); ok {
+		h.logger.Info("gallery refresh skipped during profile cooldown", "profile", username, "next_retry_at", formatTime(nextAt))
+		writeJSON(w, http.StatusTooManyRequests, galleryResponse{
+			OK:    false,
+			Error: "Instagram profile refresh is cooling down after a block. Try again after " + formatTime(nextAt) + ".",
+		})
+		return
+	}
+
 	media, err := h.profiles.FetchRecentMedia(r.Context(), username, 24)
 	if err != nil {
 		h.logger.Warn("gallery refresh profile fetch failed", "profile", username, "error", sanitizeLogError(err))
+		errText := sanitizeLogError(err)
+		_ = h.store.UpdateAutomationRun(r.Context(), now, time.Time{}, "Instagram profile refresh failed.", errText)
+		if isProfileBlockedError(err) {
+			cooldown := time.Duration(clampPollIntervalMinutes(settings.PollIntervalMinutes)) * time.Minute
+			writeJSON(w, http.StatusBadGateway, galleryResponse{OK: false, Error: "Instagram blocked the profile refresh. Next manual retry should wait until " + formatTime(now.Add(cooldown)) + "."})
+			return
+		}
 		writeJSON(w, http.StatusBadGateway, galleryResponse{OK: false, Error: "Instagram profile fetch failed"})
 		return
 	}
@@ -397,6 +417,7 @@ func (h *Handlers) refreshGallery(w http.ResponseWriter, r *http.Request) {
 		cached++
 	}
 	h.logger.Info("gallery refresh complete", "profile", username, "recent", len(media), "cached", cached, "failed", failed)
+	_ = h.store.UpdateAutomationRun(r.Context(), now, time.Time{}, fmt.Sprintf("Gallery refreshed for @%s.", username), "")
 
 	response, err := h.galleryPayload(r.Context())
 	if err != nil {
@@ -408,6 +429,23 @@ func (h *Handlers) refreshGallery(w http.ResponseWriter, r *http.Request) {
 		response.Error = fmt.Sprintf("Refreshed gallery with %d failed post fetches.", failed)
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func profileRefreshCoolingDown(settings cache.AutomationSettings, now time.Time) (time.Time, bool) {
+	if settings.LastCheckedAt.IsZero() || settings.LastError != "instagram profile fetch blocked" {
+		return time.Time{}, false
+	}
+	cooldown := time.Duration(clampPollIntervalMinutes(settings.PollIntervalMinutes)) * time.Minute
+	nextAt := settings.LastCheckedAt.Add(cooldown)
+	if now.Before(nextAt) {
+		return nextAt, true
+	}
+	return time.Time{}, false
+}
+
+func isProfileBlockedError(err error) bool {
+	var fetchErr instagram.ProfileFetchError
+	return errors.As(err, &fetchErr) && fetchErr.Kind == instagram.FetchErrorBlocked
 }
 
 func (h *Handlers) galleryPayload(ctx context.Context) (galleryResponse, error) {

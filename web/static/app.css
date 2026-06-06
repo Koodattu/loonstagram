@@ -824,6 +824,17 @@ label {
   gap: 8px;
 }
 
+.interval-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.interval-row input {
+  width: 96px;
+}
+
 .field-head {
   display: flex;
   align-items: flex-start;

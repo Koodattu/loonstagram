@@ -12,9 +12,11 @@ import (
 type fakeProfileFetcher struct {
 	media []instagram.RecentMedia
 	limit int
+	calls int
 }
 
 func (f *fakeProfileFetcher) FetchRecentMedia(ctx context.Context, username string, limit int) ([]instagram.RecentMedia, error) {
+	f.calls++
 	f.limit = limit
 	return f.media, nil
 }
@@ -59,7 +61,7 @@ func TestPollerSeedsFirstRunAndPostsNewMedia(t *testing.T) {
 	}
 	defer store.Close()
 
-	if err := store.SaveAutomationConfig(ctx, "loonletwow", true, time.Now()); err != nil {
+	if err := store.SaveAutomationConfig(ctx, "loonletwow", true, 30, time.Now()); err != nil {
 		t.Fatalf("SaveAutomationConfig() error = %v", err)
 	}
 	if err := store.SetDiscordWebhook(ctx, cache.DiscordWebhook{URL: "https://discord.com/api/webhooks/123/token"}, time.Now()); err != nil {
@@ -144,7 +146,7 @@ func TestPollerDoesNotRefetchCachedInitialPosts(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Put() error = %v", err)
 	}
-	if err := store.SaveAutomationConfig(ctx, "loonletwow", true, now); err != nil {
+	if err := store.SaveAutomationConfig(ctx, "loonletwow", true, 30, now); err != nil {
 		t.Fatalf("SaveAutomationConfig() error = %v", err)
 	}
 	if err := store.SetDiscordWebhook(ctx, cache.DiscordWebhook{URL: "https://discord.com/api/webhooks/123/token"}, now); err != nil {
@@ -179,7 +181,7 @@ func TestPollerCachesWithoutDiscordAndDoesNotBackfillLater(t *testing.T) {
 	defer store.Close()
 
 	now := time.Now()
-	if err := store.SaveAutomationConfig(ctx, "loonletwow", true, now); err != nil {
+	if err := store.SaveAutomationConfig(ctx, "loonletwow", true, 30, now); err != nil {
 		t.Fatalf("SaveAutomationConfig() error = %v", err)
 	}
 
@@ -214,6 +216,41 @@ func TestPollerCachesWithoutDiscordAndDoesNotBackfillLater(t *testing.T) {
 	}
 	if len(discord.messages) != 0 {
 		t.Fatalf("backfilled messages = %d, want 0", len(discord.messages))
+	}
+}
+
+func TestPollerSkipsProfileFetchDuringBlockedCooldown(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Now()
+	if err := store.SaveAutomationConfig(ctx, "loonletwow", true, 30, now); err != nil {
+		t.Fatalf("SaveAutomationConfig() error = %v", err)
+	}
+	if err := store.UpdateAutomationRun(ctx, now, time.Time{}, "Instagram profile refresh failed.", "instagram profile fetch blocked"); err != nil {
+		t.Fatalf("UpdateAutomationRun() error = %v", err)
+	}
+
+	profiles := &fakeProfileFetcher{media: []instagram.RecentMedia{recentMedia(instagram.TypePost, "ABC123xyz")}}
+	poller := NewPoller(Options{
+		Store:         store,
+		Profiles:      profiles,
+		Posts:         &fakePostFetcher{},
+		Discord:       &fakeDiscordSender{},
+		PublicBaseURL: "https://loonstagram.com",
+		Interval:      time.Minute,
+		CacheTTL:      time.Hour,
+	})
+
+	if err := poller.CheckOnce(ctx); err != nil {
+		t.Fatalf("CheckOnce() error = %v", err)
+	}
+	if profiles.calls != 0 {
+		t.Fatalf("profile fetch calls = %d, want 0", profiles.calls)
 	}
 }
 

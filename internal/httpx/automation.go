@@ -26,6 +26,7 @@ type automationStatusResponse struct {
 	DiscordOAuthConfigured bool   `json:"discordOAuthConfigured"`
 	InstagramUsername      string `json:"instagramUsername"`
 	Enabled                bool   `json:"enabled"`
+	PollIntervalMinutes    int    `json:"pollIntervalMinutes"`
 	DiscordConnected       bool   `json:"discordConnected"`
 	DiscordLabel           string `json:"discordLabel,omitempty"`
 	LastCheckedAt          string `json:"lastCheckedAt,omitempty"`
@@ -35,8 +36,9 @@ type automationStatusResponse struct {
 }
 
 type automationConfigRequest struct {
-	InstagramUsername string `json:"instagramUsername"`
-	Enabled           bool   `json:"enabled"`
+	InstagramUsername   string `json:"instagramUsername"`
+	Enabled             bool   `json:"enabled"`
+	PollIntervalMinutes int    `json:"pollIntervalMinutes"`
 }
 
 type discordWebhookRequest struct {
@@ -86,8 +88,9 @@ func (h *Handlers) saveAutomationConfig(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, automationResponse{OK: false, Error: "Instagram username is required"})
 		return
 	}
+	pollIntervalMinutes := clampPollIntervalMinutes(req.PollIntervalMinutes)
 
-	if err := h.store.SaveAutomationConfig(r.Context(), username, req.Enabled, time.Now()); err != nil {
+	if err := h.store.SaveAutomationConfig(r.Context(), username, req.Enabled, pollIntervalMinutes, time.Now()); err != nil {
 		h.logger.Error("save automation config", "error", err)
 		writeJSON(w, http.StatusInternalServerError, automationResponse{OK: false, Error: "Could not save automation settings"})
 		return
@@ -314,6 +317,7 @@ func (h *Handlers) automationStatusPayload(settings cache.AutomationSettings) au
 		DiscordOAuthConfigured: h.discordOAuthConfigured(),
 		InstagramUsername:      settings.InstagramUsername,
 		Enabled:                settings.Enabled,
+		PollIntervalMinutes:    clampPollIntervalMinutes(settings.PollIntervalMinutes),
 		DiscordConnected:       settings.DiscordWebhookURL != "",
 		DiscordLabel:           label,
 		LastCheckedAt:          formatTime(settings.LastCheckedAt),
@@ -321,6 +325,19 @@ func (h *Handlers) automationStatusPayload(settings cache.AutomationSettings) au
 		LastStatus:             settings.LastStatus,
 		LastError:              settings.LastError,
 	}
+}
+
+func clampPollIntervalMinutes(value int) int {
+	if value <= 0 {
+		return 30
+	}
+	if value < 5 {
+		return 5
+	}
+	if value > 1440 {
+		return 1440
+	}
+	return value
 }
 
 func (h *Handlers) authorizeAdmin(w http.ResponseWriter, r *http.Request) bool {

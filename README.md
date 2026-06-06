@@ -87,7 +87,7 @@ Optional defaults:
 - `MEDIA_PROXY_MODE=redirect`
 - `ENABLE_INSTAGRAM_GQL_FALLBACK=false` (reserved for later fallback support)
 - `ADMIN_TOKEN=` (when set, unlocks automation settings in the web UI)
-- `AUTOMATION_POLL_INTERVAL=2m`
+- `AUTOMATION_POLL_INTERVAL=30m` (startup fallback; admin settings can override the poll interval)
 - `INSTAGRAM_WEB_APP_ID=936619743392459`
 - `INSTAGRAM_SESSION_ID=` (optional self-hosted fallback for Instagram profile polling)
 - `DISCORD_CLIENT_ID=` (optional, enables Discord channel connection through OAuth)
@@ -126,7 +126,7 @@ Discord can be connected in two ways:
 - Paste a Discord webhook URL in the admin panel.
 - Configure `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`, then use the Connect Discord button. The Discord app redirect URL must match `DISCORD_REDIRECT_URL` or `{PUBLIC_BASE_URL}/oauth/discord/callback`.
 
-Instagram polling watches a public username through Instagram's web profile endpoint. The first successful poll fetches and caches the current recent posts for the gallery without posting them to Discord. Later unseen shortcodes are cached too; they are delivered only when Discord is already connected. If Instagram blocks the no-login profile endpoint, self-hosted deployments can optionally provide `INSTAGRAM_SESSION_ID`; treat that as a sensitive credential.
+Instagram polling watches a public username through Instagram's web profile endpoint. The first successful poll fetches and caches the current recent posts for the gallery without posting them to Discord. Later unseen shortcodes are cached too; they are delivered only when Discord is already connected. The admin panel controls the profile check interval in minutes. If Instagram blocks the no-login profile endpoint, manual gallery refreshes and scheduled checks cool down for that interval before retrying. Self-hosted deployments can optionally provide `INSTAGRAM_SESSION_ID`; treat that as a sensitive credential.
 
 ## Debug URLs
 
@@ -137,7 +137,7 @@ http://localhost:8080/debug/p/ABC123xyz
 http://localhost:8080/debug?url=https%3A%2F%2Fwww.instagram.com%2Fp%2FABC123xyz%2F
 ```
 
-The debug page performs fresh Instagram fetches, shows cache state, raw upstream bodies, extracted JSON blocks, parsed post data, media previews, and fetch or parse errors. Response headers that can carry secrets, such as `Set-Cookie`, are redacted.
+The debug page performs fresh Instagram fetches, shows cache state, raw upstream bodies, extracted JSON blocks, clickable Instagram image candidates, parsed post data, media previews, and fetch or parse errors. Response headers that can carry secrets, such as `Set-Cookie`, are redacted.
 
 Private or login-only Instagram content is not supported. Metadata scraping is best effort and falls back to a minimal preview when Instagram cannot be fetched.
 

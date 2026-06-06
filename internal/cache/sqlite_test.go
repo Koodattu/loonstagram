@@ -249,3 +249,24 @@ func TestListGalleryPostsFiltersUsernameAndRequiresMedia(t *testing.T) {
 		t.Fatalf("shortcode = %q", got[0].Ref.Shortcode)
 	}
 }
+
+func TestAutomationConfigStoresPollInterval(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Unix(1000, 0)
+	if err := store.SaveAutomationConfig(ctx, "loonletwow", true, 45, now); err != nil {
+		t.Fatalf("SaveAutomationConfig() error = %v", err)
+	}
+	settings, err := store.GetAutomationSettings(ctx)
+	if err != nil {
+		t.Fatalf("GetAutomationSettings() error = %v", err)
+	}
+	if settings.PollIntervalMinutes != 45 {
+		t.Fatalf("PollIntervalMinutes = %d, want 45", settings.PollIntervalMinutes)
+	}
+}

@@ -53,7 +53,7 @@ func LoadConfig() (Config, error) {
 		InstagramOEmbedAccessToken:     os.Getenv("INSTAGRAM_OEMBED_ACCESS_TOKEN"),
 		InstagramSessionID:             strings.TrimSpace(os.Getenv("INSTAGRAM_SESSION_ID")),
 		InstagramWebAppID:              envString("INSTAGRAM_WEB_APP_ID", "936619743392459"),
-		AutomationPollInterval:         envDuration("AUTOMATION_POLL_INTERVAL", 2*time.Minute),
+		AutomationPollInterval:         envDuration("AUTOMATION_POLL_INTERVAL", 30*time.Minute),
 		AdminToken:                     strings.TrimSpace(os.Getenv("ADMIN_TOKEN")),
 		DiscordClientID:                strings.TrimSpace(os.Getenv("DISCORD_CLIENT_ID")),
 		DiscordClientSecret:            strings.TrimSpace(os.Getenv("DISCORD_CLIENT_SECRET")),
