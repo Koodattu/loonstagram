@@ -689,6 +689,7 @@ type debugMediaData struct {
 
 type debugCandidateData struct {
 	Source   string `json:"source"`
+	Role     string `json:"role"`
 	URL      string `json:"url"`
 	Width    int    `json:"width,omitempty"`
 	Height   int    `json:"height,omitempty"`
@@ -859,10 +860,14 @@ func (h *Handlers) debugMedia(post *instagram.Post) []debugMediaData {
 
 func (h *Handlers) debugCandidates(report instagram.DebugReport, post *instagram.Post) []debugCandidateData {
 	selected := make(map[string]bool)
+	selectedFilenames := make(map[string]bool)
 	if post != nil {
 		for _, item := range post.Media {
 			if imageURL, _ := mediaTarget("image", item); imageURL != "" {
 				selected[imageURL] = true
+				if filename := instagram.MediaURLFilename(imageURL); filename != "" {
+					selectedFilenames[filename] = true
+				}
 			}
 			if videoURL, _ := mediaTarget("video", item); videoURL != "" {
 				selected[videoURL] = true
@@ -875,6 +880,7 @@ func (h *Handlers) debugCandidates(report instagram.DebugReport, post *instagram
 	for _, candidate := range candidates {
 		out = append(out, debugCandidateData{
 			Source:   candidate.Source,
+			Role:     debugCandidateRole(candidate.URL, selected[candidate.URL], selectedFilenames),
 			URL:      candidate.URL,
 			Width:    candidate.Width,
 			Height:   candidate.Height,
@@ -883,6 +889,19 @@ func (h *Handlers) debugCandidates(report instagram.DebugReport, post *instagram
 		})
 	}
 	return out
+}
+
+func debugCandidateRole(raw string, selected bool, selectedFilenames map[string]bool) string {
+	if selected {
+		return "selected media"
+	}
+	if instagram.LooksProfileImageURL(raw) {
+		return "profile image"
+	}
+	if selectedFilenames[instagram.MediaURLFilename(raw)] {
+		return "post media"
+	}
+	return "other image"
 }
 
 func bestDebugPost(report instagram.DebugReport, cached *instagram.Post) *instagram.Post {

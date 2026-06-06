@@ -321,6 +321,7 @@
           {{range .Candidates}}
           <article class="candidate {{if .Selected}}selected{{end}}">
             <div class="candidate-meta">
+              <span class="pill">{{.Role}}</span>
               <span class="pill">{{if .Cropped}}cropped{{else}}uncropped{{end}}</span>
               {{if .Selected}}<span class="pill">selected</span>{{end}}
               <span class="muted">{{.Source}}{{if .Width}} · {{.Width}} x {{.Height}}{{end}}</span>

@@ -16,6 +16,8 @@ var (
 	attrPattern         = regexp.MustCompile(`(?is)([a-zA-Z_:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 	metaUsernamePattern = regexp.MustCompile(`(?:^|[\s(])@([A-Za-z0-9_.]+)`)
 	croppedStpPattern   = regexp.MustCompile(`(?:^|_)c\d+(?:\.\d+){3}a(?:_|$)`)
+	imageURLPattern     = regexp.MustCompile(`https?(?::|\\u003a)[/\\]+scontent\.cdninstagram\.com[^"'<>\s]+`)
+	resizedStpPattern   = regexp.MustCompile(`(?:^|_)s(\d+)x(\d+)(?:_|$)`)
 )
 
 func ParseEmbedHTML(ref Ref, body string) (*Post, error) {
@@ -46,6 +48,7 @@ func ParseEmbedHTML(ref Ref, body string) (*Post, error) {
 
 	meta := parseMetaTags(body)
 	applyMetaFallback(post, meta)
+	applyRawBodyImageCandidates(post, body)
 
 	post.Caption = CleanCaption(post.Caption)
 	if post.Username == "" && post.Caption == "" {
@@ -53,6 +56,64 @@ func ParseEmbedHTML(ref Ref, body string) (*Post, error) {
 	}
 
 	return post, nil
+}
+
+func applyRawBodyImageCandidates(post *Post, body string) {
+	if len(post.Media) == 0 {
+		return
+	}
+	candidates := extractImageURLCandidates(body)
+	if len(candidates) == 0 {
+		return
+	}
+
+	byFilename := make(map[string][]imageVersionCandidate)
+	for _, candidate := range candidates {
+		filename := MediaURLFilename(candidate.URL)
+		if filename == "" || LooksProfileImageURL(candidate.URL) {
+			continue
+		}
+		byFilename[filename] = append(byFilename[filename], candidate)
+	}
+
+	for i := range post.Media {
+		item := &post.Media[i]
+		switch item.Kind {
+		case "image":
+			best := bestSameFileImage(item.URL, item.Width, item.Height, byFilename)
+			if best.URL != "" && best.URL != item.URL {
+				item.URL = best.URL
+				item.Width = firstPositiveInt(best.Width, item.Width)
+				item.Height = firstPositiveInt(best.Height, item.Height)
+			}
+		case "video":
+			best := bestSameFileImage(item.PosterURL, item.Width, item.Height, byFilename)
+			if best.URL != "" && best.URL != item.PosterURL {
+				item.PosterURL = best.URL
+				item.Width = firstPositiveInt(best.Width, item.Width)
+				item.Height = firstPositiveInt(best.Height, item.Height)
+			}
+		}
+	}
+}
+
+func bestSameFileImage(currentURL string, currentWidth, currentHeight int, byFilename map[string][]imageVersionCandidate) imageVersionCandidate {
+	filename := MediaURLFilename(currentURL)
+	if filename == "" {
+		return imageVersionCandidate{}
+	}
+	best := imageVersionCandidate{
+		URL:     currentURL,
+		Width:   currentWidth,
+		Height:  currentHeight,
+		Cropped: LooksCroppedMediaURL(currentURL),
+	}
+	for _, candidate := range byFilename[filename] {
+		if betterImageCandidate(candidate, best) {
+			best = candidate
+		}
+	}
+	return best
 }
 
 func applyInstagramAPIFallback(post *Post, body string) {
@@ -347,6 +408,71 @@ type imageVersionCandidate struct {
 	Cropped bool
 }
 
+func extractImageURLCandidates(body string) []imageVersionCandidate {
+	out := make([]imageVersionCandidate, 0)
+	seen := make(map[string]bool)
+	for _, raw := range imageURLPattern.FindAllString(body, -1) {
+		url := normalizeInstagramMediaURL(raw)
+		if !looksLikeImageURL(url) || seen[url] {
+			continue
+		}
+		seen[url] = true
+		width, height := mediaURLDimensions(url)
+		out = append(out, imageVersionCandidate{
+			URL:     url,
+			Width:   width,
+			Height:  height,
+			Cropped: LooksCroppedMediaURL(url),
+		})
+	}
+	return out
+}
+
+func normalizeInstagramMediaURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	raw = html.UnescapeString(raw)
+	raw = strings.ReplaceAll(raw, `\/`, "/")
+
+	var decoded string
+	if err := json.Unmarshal([]byte(`"`+strings.ReplaceAll(raw, `"`, `\"`)+`"`), &decoded); err == nil {
+		raw = decoded
+	}
+	return html.UnescapeString(raw)
+}
+
+func mediaURLDimensions(raw string) (int, int) {
+	parsed, err := url.Parse(raw)
+	if err == nil {
+		if stp := parsed.Query().Get("stp"); stp != "" {
+			return dimensionsFromSTP(stp)
+		}
+	}
+	if _, after, ok := strings.Cut(raw, "stp="); ok {
+		stp := after
+		if end := strings.IndexByte(stp, '&'); end >= 0 {
+			stp = stp[:end]
+		}
+		if value, err := url.QueryUnescape(stp); err == nil {
+			stp = value
+		}
+		return dimensionsFromSTP(stp)
+	}
+	return 0, 0
+}
+
+func dimensionsFromSTP(stp string) (int, int) {
+	match := resizedStpPattern.FindStringSubmatch(stp)
+	if len(match) != 3 {
+		return 0, 0
+	}
+	width, _ := strconv.Atoi(match[1])
+	height, _ := strconv.Atoi(match[2])
+	return width, height
+}
+
 func betterImageCandidate(candidate, current imageVersionCandidate) bool {
 	if candidate.URL == "" {
 		return false
@@ -363,6 +489,33 @@ func betterImageCandidate(candidate, current imageVersionCandidate) bool {
 		return candidateArea > currentArea
 	}
 	return candidate.Width > current.Width
+}
+
+func MediaURLFilename(raw string) string {
+	raw = normalizeInstagramMediaURL(raw)
+	parsed, err := url.Parse(raw)
+	path := raw
+	if err == nil {
+		path = parsed.Path
+	} else if before, _, ok := strings.Cut(raw, "?"); ok {
+		path = before
+	}
+	path = strings.TrimRight(path, "/")
+	if path == "" {
+		return ""
+	}
+	if index := strings.LastIndexByte(path, '/'); index >= 0 {
+		path = path[index+1:]
+	}
+	return path
+}
+
+func LooksProfileImageURL(raw string) bool {
+	raw = normalizeInstagramMediaURL(raw)
+	lower := strings.ToLower(raw)
+	return strings.Contains(lower, "/t51.2885-19/") ||
+		strings.Contains(lower, "profile_pic") ||
+		strings.Contains(lower, "profilepic")
 }
 
 func LooksCroppedMediaURL(raw string) bool {

@@ -638,6 +638,24 @@ func TestDebugCandidatesMarksSelectedMedia(t *testing.T) {
 	if !candidates[1].Selected || candidates[1].Cropped {
 		t.Fatalf("second candidate = %#v", candidates[1])
 	}
+	if candidates[1].Role != "selected media" {
+		t.Fatalf("second candidate role = %q", candidates[1].Role)
+	}
+}
+
+func TestDebugCandidateRoleClassifiesPostAndProfileImages(t *testing.T) {
+	selectedFilenames := map[string]bool{
+		"619289718_17951341275072694_8657305568275949427_n.jpg": true,
+	}
+	postCandidate := "https://scontent.cdninstagram.com/v/t51.82787-15/619289718_17951341275072694_8657305568275949427_n.jpg?stp=dst-jpg_e35_s1080x1080_tt6"
+	profileCandidate := "https://scontent.cdninstagram.com/v/t51.2885-19/437590353_2192875307721665_4063332443154026003_n.jpg?stp=dst-jpg_s150x150_tt6"
+
+	if role := debugCandidateRole(postCandidate, false, selectedFilenames); role != "post media" {
+		t.Fatalf("post candidate role = %q", role)
+	}
+	if role := debugCandidateRole(profileCandidate, false, selectedFilenames); role != "profile image" {
+		t.Fatalf("profile candidate role = %q", role)
+	}
 }
 
 func solidImage(width, height int, c color.Color) image.Image {

@@ -5,15 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 )
-
-var debugImageURLPattern = regexp.MustCompile(`https?(?::|\\u003a)[/\\]+scontent\.cdninstagram\.com[^"'<>\s]+`)
 
 type DebugReport struct {
 	GeneratedAt time.Time    `json:"generatedAt"`
@@ -195,8 +191,8 @@ func ExtractDebugMediaCandidates(report DebugReport) []DebugMediaCandidate {
 	out := make([]DebugMediaCandidate, 0)
 	seen := make(map[string]bool)
 	for _, fetch := range report.Fetches {
-		for _, raw := range debugImageURLPattern.FindAllString(fetch.Body, -1) {
-			appendDebugMediaCandidate(fetch.Name+" body", normalizeDebugMediaURL(raw), 0, 0, seen, &out)
+		for _, raw := range imageURLPattern.FindAllString(fetch.Body, -1) {
+			appendDebugMediaCandidate(fetch.Name+" body", normalizeInstagramMediaURL(raw), 0, 0, seen, &out)
 		}
 		for _, block := range fetch.ExtractedJSON {
 			raw := block.Raw
@@ -240,16 +236,8 @@ func appendDebugMediaCandidates(source string, value any, seen map[string]bool, 
 	}
 }
 
-func normalizeDebugMediaURL(raw string) string {
-	raw = strings.TrimSpace(raw)
-	raw = strings.ReplaceAll(raw, `\u003a`, ":")
-	raw = strings.ReplaceAll(raw, `\/`, "/")
-	raw = strings.ReplaceAll(raw, `\u0026`, "&")
-	return html.UnescapeString(raw)
-}
-
 func appendDebugMediaCandidate(source, raw string, width, height int, seen map[string]bool, out *[]DebugMediaCandidate) {
-	raw = normalizeDebugMediaURL(raw)
+	raw = normalizeInstagramMediaURL(raw)
 	if !looksLikeImageURL(raw) || seen[raw] {
 		return
 	}

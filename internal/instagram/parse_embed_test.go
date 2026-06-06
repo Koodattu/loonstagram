@@ -204,6 +204,45 @@ func TestParseEmbedHTMLPrefersUncroppedDisplayURLOverCroppedResource(t *testing.
 	}
 }
 
+func TestParseEmbedHTMLPromotesUncroppedRawBodySameFileCandidate(t *testing.T) {
+	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
+	body := `
+<script>
+  window.__data = {"items":[{
+    "user":{"username":"loonletwow"},
+    "caption":{"text":"Gliding into the weekend"},
+    "media_type":1,
+    "image_versions2":{"candidates":[
+      {"url":"https://scontent.cdninstagram.com/v/t51.82787-15/619289718_17951341275072694_8657305568275949427_n.jpg?stp=c288.0.864.864a_dst-jpg_e35_s640x640_tt6","width":864,"height":864}
+    ]}
+  }]};
+</script>
+<script>
+  window.__more = {
+    "post": "https:\/\/scontent.cdninstagram.com\/v\/t51.82787-15\/619289718_17951341275072694_8657305568275949427_n.jpg?stp=dst-jpg_e35_s1080x1080_sh2.08_tt6\u0026_nc_cat=110",
+    "profile": "https:\/\/scontent.cdninstagram.com\/v\/t51.2885-19\/437590353_2192875307721665_4063332443154026003_n.jpg?stp=dst-jpg_s150x150_tt6"
+  };
+</script>`
+
+	post, err := ParseEmbedHTML(ref, body)
+	if err != nil {
+		t.Fatalf("ParseEmbedHTML() error = %v", err)
+	}
+	if len(post.Media) != 1 {
+		t.Fatalf("Media length = %d", len(post.Media))
+	}
+	media := post.Media[0]
+	if LooksCroppedMediaURL(media.URL) {
+		t.Fatalf("Media URL is still cropped: %q", media.URL)
+	}
+	if media.URL != "https://scontent.cdninstagram.com/v/t51.82787-15/619289718_17951341275072694_8657305568275949427_n.jpg?stp=dst-jpg_e35_s1080x1080_sh2.08_tt6&_nc_cat=110" {
+		t.Fatalf("Media URL = %q", media.URL)
+	}
+	if media.Width != 1080 || media.Height != 1080 {
+		t.Fatalf("Media size = %dx%d", media.Width, media.Height)
+	}
+}
+
 func TestLooksCroppedMediaURL(t *testing.T) {
 	if !LooksCroppedMediaURL("https://scontent.cdninstagram.com/image.jpg?stp=c288.0.864.864a_dst-jpg_e35_s640x640_tt6") {
 		t.Fatal("cropped stp was not detected")
