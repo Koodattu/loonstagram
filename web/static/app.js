@@ -59,7 +59,7 @@ const galleryState = {
 
 let statusAnimationTimer = 0;
 let viewerWheelTimer = 0;
-const galleryImageStartIntervalMs = 240;
+const galleryImageStartIntervalMs = 360;
 const galleryImageRetryDelayMs = 1600;
 const galleryImageRetryLimit = 2;
 const galleryImageQueue = [];

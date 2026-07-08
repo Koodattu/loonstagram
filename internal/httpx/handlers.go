@@ -143,6 +143,8 @@ func (h *Handlers) Routes() http.Handler {
 	mux.HandleFunc("GET /p/{shortcode}", h.canonical(instagram.TypePost))
 	mux.HandleFunc("GET /reel/{shortcode}", h.canonical(instagram.TypeReel))
 	mux.HandleFunc("GET /tv/{shortcode}", h.canonical(instagram.TypeTV))
+	mux.HandleFunc("GET /gallery-media/{type}/{shortcode}/{index}/image", h.media("image"))
+	mux.HandleFunc("GET /gallery-media/{type}/{shortcode}/{index}/video", h.media("video"))
 	mux.HandleFunc("GET /media/{type}/{shortcode}/{index}/image", h.media("image"))
 	mux.HandleFunc("GET /media/{type}/{shortcode}/{index}/video", h.media("video"))
 	mux.HandleFunc("GET /preview/{type}/{shortcode}/image", h.previewImage)
@@ -521,10 +523,10 @@ func (h *Handlers) galleryItem(post *instagram.Post) galleryItem {
 			Height: media.Height,
 		}
 		if imageURL != "" {
-			galleryMedia.ImageURL = h.publicURL(fmt.Sprintf("/media/%s/%s/%d/image", post.Ref.Type, post.Ref.Shortcode, i+1))
+			galleryMedia.ImageURL = h.publicURL(fmt.Sprintf("/gallery-media/%s/%s/%d/image", post.Ref.Type, post.Ref.Shortcode, i+1))
 		}
 		if videoURL != "" {
-			galleryMedia.VideoURL = h.publicURL(fmt.Sprintf("/media/%s/%s/%d/video", post.Ref.Type, post.Ref.Shortcode, i+1))
+			galleryMedia.VideoURL = h.publicURL(fmt.Sprintf("/gallery-media/%s/%s/%d/video", post.Ref.Type, post.Ref.Shortcode, i+1))
 		}
 		item.Media = append(item.Media, galleryMedia)
 	}

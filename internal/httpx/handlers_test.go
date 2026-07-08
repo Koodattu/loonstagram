@@ -403,8 +403,8 @@ func TestGalleryUsesConfiguredProfileAndLocalMediaURLs(t *testing.T) {
 	body := rr.Body.String()
 	if !strings.Contains(body, `"profile":"loonletwow"`) ||
 		!strings.Contains(body, `"canonicalUrl":"https://loonstagram.com/p/ABC123xyz"`) ||
-		!strings.Contains(body, `"imageUrl":"https://loonstagram.com/media/p/ABC123xyz/1/image"`) ||
-		!strings.Contains(body, `"videoUrl":"https://loonstagram.com/media/p/ABC123xyz/2/video"`) {
+		!strings.Contains(body, `"imageUrl":"https://loonstagram.com/gallery-media/p/ABC123xyz/1/image"`) ||
+		!strings.Contains(body, `"videoUrl":"https://loonstagram.com/gallery-media/p/ABC123xyz/2/video"`) {
 		t.Fatalf("gallery response missing expected values:\n%s", body)
 	}
 	if strings.Contains(body, "scontent.cdninstagram.com") {
@@ -463,7 +463,7 @@ func TestRefreshGalleryFetchesRecentPosts(t *testing.T) {
 		t.Fatalf("post fetch calls = %d, want 1", fetcher.calls)
 	}
 	if body := rr.Body.String(); !strings.Contains(body, `"shortcode":"ABC123xyz"`) ||
-		!strings.Contains(body, `"imageUrl":"https://loonstagram.com/media/p/ABC123xyz/1/image"`) {
+		!strings.Contains(body, `"imageUrl":"https://loonstagram.com/gallery-media/p/ABC123xyz/1/image"`) {
 		t.Fatalf("refresh response missing gallery item:\n%s", body)
 	}
 }
