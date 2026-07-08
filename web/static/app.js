@@ -59,6 +59,72 @@ const galleryState = {
 
 let statusAnimationTimer = 0;
 let viewerWheelTimer = 0;
+const galleryImageStartIntervalMs = 240;
+const galleryImageRetryDelayMs = 1600;
+const galleryImageRetryLimit = 2;
+const galleryImageQueue = [];
+let galleryImageTimer = 0;
+let galleryImageLastStartedAt = 0;
+let galleryImageRenderID = 0;
+
+function resetGalleryImageQueue() {
+  galleryImageRenderID += 1;
+  galleryImageQueue.length = 0;
+  galleryImageLastStartedAt = 0;
+  window.clearTimeout(galleryImageTimer);
+  galleryImageTimer = 0;
+}
+
+function queueGalleryImage(image, url) {
+  if (!image || !url) {
+    return;
+  }
+  galleryImageQueue.push({
+    image,
+    renderID: galleryImageRenderID,
+    url,
+  });
+  scheduleGalleryImageLoad();
+}
+
+function scheduleGalleryImageLoad() {
+  if (galleryImageTimer || galleryImageQueue.length === 0) {
+    return;
+  }
+  const now = window.performance.now();
+  const wait = galleryImageLastStartedAt === 0
+    ? 0
+    : Math.max(galleryImageStartIntervalMs - (now - galleryImageLastStartedAt), 0);
+  galleryImageTimer = window.setTimeout(loadNextGalleryImage, wait);
+}
+
+function loadNextGalleryImage() {
+  galleryImageTimer = 0;
+  const next = galleryImageQueue.shift();
+  if (!next) {
+    return;
+  }
+  galleryImageLastStartedAt = window.performance.now();
+  if (next.renderID === galleryImageRenderID && next.image.isConnected && !next.image.getAttribute("src")) {
+    next.image.src = next.url;
+  }
+  scheduleGalleryImageLoad();
+}
+
+function retryGalleryImage(image, url) {
+  const attempts = Number(image.dataset.retryCount || "0");
+  if (attempts >= galleryImageRetryLimit) {
+    return;
+  }
+  image.dataset.retryCount = String(attempts + 1);
+  window.setTimeout(() => {
+    if (!image.isConnected || image.naturalWidth > 0) {
+      return;
+    }
+    image.removeAttribute("src");
+    queueGalleryImage(image, url);
+  }, galleryImageRetryDelayMs * (attempts + 1));
+}
 
 function setStatus(message, kind = "") {
   if (!statusText) {
@@ -303,6 +369,7 @@ function renderGallerySkeleton(count = 9) {
   if (!galleryGrid) {
     return;
   }
+  resetGalleryImageQueue();
   const skeletons = Array.from({ length: count }, (_, index) => {
     const skeleton = document.createElement("div");
     skeleton.className = "gallery-card is-skeleton";
@@ -317,6 +384,7 @@ function renderGallery() {
   if (!galleryGrid) {
     return;
   }
+  resetGalleryImageQueue();
   const cards = galleryState.tiles.map((tile, index) => {
     const button = document.createElement("button");
     button.className = "gallery-card";
@@ -327,9 +395,11 @@ function renderGallery() {
 
     if (tile.imageURL) {
       const image = document.createElement("img");
-      image.src = tile.imageURL;
       image.alt = tile.post.caption ? `@${tile.post.username}: ${tile.post.caption}` : `@${tile.post.username} Instagram post`;
+      image.decoding = "async";
       image.loading = "lazy";
+      image.addEventListener("error", () => retryGalleryImage(image, tile.imageURL));
+      queueGalleryImage(image, tile.imageURL);
       button.append(image);
     }
 
@@ -348,6 +418,7 @@ function renderGalleryEmpty(message) {
   if (!galleryGrid) {
     return;
   }
+  resetGalleryImageQueue();
   const empty = document.createElement("div");
   empty.className = "gallery-empty";
   empty.setAttribute("role", "note");
