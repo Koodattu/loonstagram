@@ -2,7 +2,7 @@ services:
   app:
     build:
       context: ..
-      dockerfile: deploy/Dockerfile.prod
+      dockerfile: deploy/Dockerfile
     environment:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://loonstagram.com}
       DATABASE_PATH: /data/Loonstagram.sqlite
@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:1.30.4-alpine3.24@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46
     volumes:
       - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
