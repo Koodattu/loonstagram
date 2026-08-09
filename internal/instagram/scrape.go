@@ -66,13 +66,17 @@ func (c *Client) FetchPost(ctx context.Context, ref Ref) (*Post, error) {
 		return post, nil
 	}
 
-	var fetchErr FetchError
-	if errors.As(err, &fetchErr) && fetchErr.Kind == FetchErrorParse {
-		if fallbackPost, fallbackErr := c.fetchPostPage(ctx, ref, ref.OriginalURL()); fallbackErr == nil {
-			return fallbackPost, nil
-		}
+	if fallbackPost, fallbackErr := c.fetchPostPage(ctx, ref, ref.OriginalURL()); fallbackErr == nil {
+		return fallbackPost, nil
+	} else if fetchErrorHasKind(fallbackErr, FetchErrorBlocked) {
+		return nil, fallbackErr
 	}
 	return nil, err
+}
+
+func fetchErrorHasKind(err error, kind string) bool {
+	var fetchErr FetchError
+	return errors.As(err, &fetchErr) && fetchErr.Kind == kind
 }
 
 func betterMediaPost(candidate, current *Post) bool {
@@ -82,12 +86,27 @@ func betterMediaPost(candidate, current *Post) bool {
 	if current == nil || len(current.Media) == 0 {
 		return true
 	}
+	candidateVideos := playableVideoCount(candidate)
+	currentVideos := playableVideoCount(current)
+	if candidateVideos != currentVideos {
+		return candidateVideos > currentVideos
+	}
+	if len(candidate.Media) != len(current.Media) {
+		return len(candidate.Media) > len(current.Media)
+	}
 	candidateCropped := croppedMediaCount(candidate)
 	currentCropped := croppedMediaCount(current)
-	if candidateCropped != currentCropped {
-		return candidateCropped < currentCropped
+	return candidateCropped < currentCropped
+}
+
+func playableVideoCount(post *Post) int {
+	count := 0
+	for _, item := range post.Media {
+		if item.Kind == "video" && item.URL != "" {
+			count++
+		}
 	}
-	return len(candidate.Media) > len(current.Media)
+	return count
 }
 
 func croppedMediaCount(post *Post) int {
@@ -116,6 +135,13 @@ func (c *Client) fetchPostPage(ctx context.Context, ref Ref, target string) (*Po
 	}
 	defer resp.Body.Close()
 
+	if resp.Request == nil || resp.Request.URL == nil {
+		return nil, FetchError{Kind: FetchErrorBlocked, Message: "instagram metadata response identity could not be verified"}
+	}
+	responseRef, err := NormalizeURL(resp.Request.URL.String())
+	if err != nil || responseRef.Shortcode != ref.Shortcode {
+		return nil, FetchError{Kind: FetchErrorBlocked, Message: "instagram redirected metadata fetch away from the requested post"}
+	}
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, FetchError{Kind: FetchErrorNotFound, Message: "instagram metadata not found"}
 	}
@@ -125,7 +151,6 @@ func (c *Client) fetchPostPage(ctx context.Context, ref Ref, target string) (*Po
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, FetchError{Kind: FetchErrorNetwork, Message: fmt.Sprintf("instagram returned status %d", resp.StatusCode)}
 	}
-
 	body, err := readLimited(resp.Body, c.maxBodyBytes)
 	if err != nil {
 		return nil, FetchError{Kind: FetchErrorNetwork, Message: err.Error()}

@@ -4,10 +4,10 @@ import "testing"
 
 func TestNormalizeURLAcceptsSupportedPaths(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     string
-		wantType  string
-		wantCode  string
+		name     string
+		input    string
+		wantType string
+		wantCode string
 	}{
 		{
 			name:     "post",
@@ -67,6 +67,8 @@ func TestNormalizeURLRejectsUnsupportedInput(t *testing.T) {
 		"https://www.instagram.com/stories/example/123/",
 		"https://www.instagram.com/p/abc/",
 		"https://www.instagram.com/p/ABC123xyz%2Fextra/",
+		"https://www.instagram.com/share/reel/AbCdEfGhIj/",
+		"https://www.instagram.com/share/p/AbCdEfGhIj/",
 	}
 
 	for _, input := range tests {

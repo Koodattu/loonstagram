@@ -42,6 +42,7 @@ func TestParseEmbedHTMLUsesMetaFallback(t *testing.T) {
 	body := `
 <meta property="og:title" content="@Loonstagram_user on Instagram">
 <meta property="og:description" content="Fallback caption">
+<meta property="og:url" content="https://www.instagram.com/p/ABC123xyz/">
 <meta property="og:image" content="https://scontent.cdninstagram.com/image.jpg">
 `
 
@@ -62,6 +63,7 @@ func TestParseEmbedHTMLUsesOriginalPageMetaFallback(t *testing.T) {
 	body := `
 <meta property="og:title" content="Loonlet the Fabulous on Instagram: &quot;Fallback caption&quot;">
 <meta property="og:description" content="loonletwow on June 1, 2026: &quot;Fallback caption&quot;">
+<meta property="og:url" content="https://www.instagram.com/p/ABC123xyz/">
 <meta property="og:image" content="https://scontent.cdninstagram.com/post.jpg">
 <meta name="twitter:title" content="Loonlet the Fabulous (&#064;loonletwow) &#x2022; Instagram photo">
 `
@@ -90,6 +92,63 @@ func TestParseEmbedHTMLRejectsMediaOnlyFallback(t *testing.T) {
 
 	if _, err := ParseEmbedHTML(ref, body); err == nil {
 		t.Fatalf("ParseEmbedHTML() succeeded, want error")
+	}
+}
+
+func TestParseEmbedHTMLAllowsCaptionlessPost(t *testing.T) {
+	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
+	body := `
+<meta property="og:title" content="@loonletwow on Instagram">
+<meta property="og:url" content="https://www.instagram.com/p/ABC123xyz/">
+<meta property="og:image" content="https://scontent.cdninstagram.com/post.jpg">
+`
+
+	post, err := ParseEmbedHTML(ref, body)
+	if err != nil {
+		t.Fatalf("ParseEmbedHTML() error = %v", err)
+	}
+	if post.Username != "loonletwow" || post.Caption != "" || len(post.Media) != 1 {
+		t.Fatalf("post = %#v", post)
+	}
+}
+
+func TestParseEmbedHTMLRejectsExternalOrProfileMedia(t *testing.T) {
+	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
+	for _, imageURL := range []string{
+		"https://example.com/post.jpg",
+		"https://scontent.cdninstagram.com/v/t51.2885-19/profile.jpg",
+	} {
+		body := `<meta property="og:title" content="@loonletwow on Instagram">` +
+			`<meta property="og:url" content="https://www.instagram.com/p/ABC123xyz/">` +
+			`<meta property="og:image" content="` + imageURL + `">`
+		if _, err := ParseEmbedHTML(ref, body); err == nil {
+			t.Fatalf("ParseEmbedHTML() accepted image %q", imageURL)
+		}
+	}
+}
+
+func TestParseEmbedHTMLRejectsGenericMetaWithoutPostIdentity(t *testing.T) {
+	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
+	body := `
+<meta property="og:title" content="@instagram on Instagram">
+<meta property="og:image" content="https://scontent.cdninstagram.com/generic.jpg">
+`
+
+	if _, err := ParseEmbedHTML(ref, body); err == nil {
+		t.Fatal("ParseEmbedHTML() accepted generic metadata without post identity")
+	}
+}
+
+func TestParseEmbedHTMLRejectsMismatchedCanonicalMetadata(t *testing.T) {
+	ref := Ref{Type: TypePost, Shortcode: "ABC123xyz"}
+	body := `
+<meta property="og:url" content="https://www.instagram.com/p/DIFFERENT1/">
+<meta property="og:title" content="@loonletwow on Instagram">
+<meta property="og:image" content="https://scontent.cdninstagram.com/post.jpg">
+`
+
+	if _, err := ParseEmbedHTML(ref, body); err == nil {
+		t.Fatal("ParseEmbedHTML() accepted metadata for another shortcode")
 	}
 }
 
@@ -155,6 +214,7 @@ func TestParseEmbedHTMLPrefersUncroppedImageVersion(t *testing.T) {
 	body := `
 <script>
   window.__data = {"items":[{
+    "code":"ABC123xyz",
     "user":{"username":"loonletwow"},
     "caption":{"text":"Gliding into the weekend"},
     "media_type":1,
@@ -209,6 +269,7 @@ func TestParseEmbedHTMLPromotesUncroppedRawBodySameFileCandidate(t *testing.T) {
 	body := `
 <script>
   window.__data = {"items":[{
+    "code":"ABC123xyz",
     "user":{"username":"loonletwow"},
     "caption":{"text":"Gliding into the weekend"},
     "media_type":1,
@@ -257,6 +318,7 @@ func TestParseEmbedHTMLExtractsInstagramAPIItemsCarousel(t *testing.T) {
 	body := `
 <script>
   window.__data = {"items":[{
+    "code":"ABC123xyz",
     "user":{"username":"loonletwow"},
     "caption":{"text":"The squad coming at you like\n\nPepe: eyes lips eyes"},
     "carousel_media":[{

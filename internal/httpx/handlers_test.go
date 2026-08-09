@@ -174,6 +174,7 @@ func TestRefreshDebugCacheDeletesAndRefetchesPost(t *testing.T) {
 		CacheSuccessTTL:  time.Hour,
 		CacheNegativeTTL: time.Minute,
 		CacheBlockedTTL:  time.Minute,
+		AdminToken:       "secret",
 		Store:            store,
 		Scraper:          fetcher,
 	})
@@ -182,6 +183,7 @@ func TestRefreshDebugCacheDeletesAndRefetchesPost(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/debug/p/ABC123xyz/refresh", nil)
+	req.Header.Set("X-Admin-Token", "secret")
 	rr := httptest.NewRecorder()
 	h.Routes().ServeHTTP(rr, req)
 
@@ -204,6 +206,111 @@ func TestRefreshDebugCacheDeletesAndRefetchesPost(t *testing.T) {
 	}
 	if got.Username != "new" || len(got.Media) != 1 {
 		t.Fatalf("cached post = %#v", got)
+	}
+}
+
+func TestDebugRoutesRequireAdminTokenBeforeFetchingOrDeleting(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       ref,
+		Username:  "cached",
+		Media:     []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/cached.jpg"}},
+		Status:    "ok",
+		FetchedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+
+	fetcher := &fakePostFetcher{post: &instagram.Post{Username: "new"}}
+	h, err := NewHandlers(Options{
+		PublicBaseURL:    "https://loonstagram.com",
+		CacheSuccessTTL:  time.Hour,
+		CacheNegativeTTL: time.Minute,
+		CacheBlockedTTL:  time.Minute,
+		AdminToken:       "secret",
+		Store:            store,
+		Scraper:          fetcher,
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/debug/p/ABC123xyz"},
+		{method: http.MethodPost, path: "/debug/p/ABC123xyz/refresh"},
+	} {
+		req := httptest.NewRequest(test.method, test.path, nil)
+		rr := httptest.NewRecorder()
+		h.Routes().ServeHTTP(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Fatalf("%s %s status = %d, want %d", test.method, test.path, rr.Code, http.StatusForbidden)
+		}
+		if cacheControl := rr.Header().Get("Cache-Control"); cacheControl != "private, no-store" {
+			t.Fatalf("Cache-Control = %q", cacheControl)
+		}
+	}
+	if fetcher.calls != 0 {
+		t.Fatalf("fetch calls = %d, want 0", fetcher.calls)
+	}
+	if post, ok, err := store.GetAny(ctx, ref); err != nil || !ok || post.Username != "cached" {
+		t.Fatalf("cached post = %#v, ok = %v, err = %v", post, ok, err)
+	}
+}
+
+func TestDebugSessionExchangesHeaderTokenForScopedCookie(t *testing.T) {
+	store, err := cache.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	h, err := NewHandlers(Options{
+		PublicBaseURL: "https://loonstagram.com",
+		AdminToken:    "secret",
+		Store:         store,
+		Scraper:       &fakePostFetcher{},
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/debug/session", nil)
+	req.Header.Set("X-Admin-Token", "secret")
+	rr := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNoContent)
+	}
+	cookie := rr.Header().Get("Set-Cookie")
+	if !strings.Contains(cookie, debugAuthCookieName+"=") || !strings.Contains(cookie, "Path=/debug") ||
+		!strings.Contains(cookie, "HttpOnly") || !strings.Contains(cookie, "Secure") || !strings.Contains(cookie, "SameSite=Strict") {
+		t.Fatalf("Set-Cookie = %q", cookie)
+	}
+
+	queryRequest := httptest.NewRequest(http.MethodGet, "/debug/p/ABC123xyz?admin_token=secret", nil)
+	queryRecorder := httptest.NewRecorder()
+	h.Routes().ServeHTTP(queryRecorder, queryRequest)
+	if queryRecorder.Code != http.StatusForbidden {
+		t.Fatalf("query token status = %d, want %d", queryRecorder.Code, http.StatusForbidden)
+	}
+
+	expiredRequest := httptest.NewRequest(http.MethodGet, "/debug/p/ABC123xyz", nil)
+	expiredRequest.AddCookie(&http.Cookie{Name: debugAuthCookieName, Value: h.debugAuthCookieValue(time.Now().Add(-time.Minute))})
+	expiredRecorder := httptest.NewRecorder()
+	h.Routes().ServeHTTP(expiredRecorder, expiredRequest)
+	if expiredRecorder.Code != http.StatusForbidden {
+		t.Fatalf("expired cookie status = %d, want %d", expiredRecorder.Code, http.StatusForbidden)
 	}
 }
 
@@ -244,7 +351,7 @@ func TestCanonicalStripsTrailingSlashBeforeRouteMatch(t *testing.T) {
 	}
 }
 
-func TestCanonicalUsesExpiredSuccessfulCacheWithoutRefetch(t *testing.T) {
+func TestCanonicalUsesExpiredSuccessfulCacheWhenRefreshFails(t *testing.T) {
 	ctx := context.Background()
 	store, err := cache.Open(ctx, ":memory:")
 	if err != nil {
@@ -288,11 +395,79 @@ func TestCanonicalUsesExpiredSuccessfulCacheWithoutRefetch(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	if fetcher.calls != 0 {
-		t.Fatalf("fetch calls = %d, want 0", fetcher.calls)
+	if fetcher.calls != 1 {
+		t.Fatalf("fetch calls = %d, want 1", fetcher.calls)
 	}
 	if body := rr.Body.String(); !strings.Contains(body, "cached caption") || !strings.Contains(body, "preview/p/ABC123xyz/image") {
 		t.Fatalf("embed did not use cached post:\n%s", body)
+	}
+
+	second := httptest.NewRequest(http.MethodGet, "/p/ABC123xyz", nil)
+	second.Header.Set("User-Agent", "Discordbot/2.0")
+	secondRecorder := httptest.NewRecorder()
+	h.Routes().ServeHTTP(secondRecorder, second)
+	if secondRecorder.Code != http.StatusOK {
+		t.Fatalf("second status = %d, want %d", secondRecorder.Code, http.StatusOK)
+	}
+	if fetcher.calls != 1 {
+		t.Fatalf("fetch calls after stale retry window = %d, want 1", fetcher.calls)
+	}
+}
+
+func TestCanonicalRefreshesExpiredSuccessfulCache(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       ref,
+		Username:  "old",
+		Caption:   "old caption",
+		Media:     []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/old.jpg"}},
+		Status:    "ok",
+		FetchedAt: time.Now().Add(-2 * time.Hour),
+		ExpiresAt: time.Now().Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+
+	fetcher := &fakePostFetcher{post: &instagram.Post{
+		Username: "new",
+		Caption:  "new caption",
+		Media:    []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/new.jpg"}},
+	}}
+	h, err := NewHandlers(Options{
+		PublicBaseURL:    "https://loonstagram.com",
+		CacheSuccessTTL:  time.Hour,
+		CacheNegativeTTL: time.Minute,
+		CacheBlockedTTL:  time.Minute,
+		Store:            store,
+		Scraper:          fetcher,
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/p/ABC123xyz", nil)
+	req.Header.Set("User-Agent", "Discordbot/2.0")
+	rr := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if fetcher.calls != 1 {
+		t.Fatalf("fetch calls = %d, want 1", fetcher.calls)
+	}
+	if body := rr.Body.String(); !strings.Contains(body, "new caption") || strings.Contains(body, "old caption") {
+		t.Fatalf("embed did not use refreshed post:\n%s", body)
+	}
+	if post, ok, err := store.Get(ctx, ref, time.Now()); err != nil || !ok || post.Username != "new" {
+		t.Fatalf("refreshed post = %#v, ok = %v, err = %v", post, ok, err)
 	}
 }
 
@@ -346,9 +521,157 @@ func TestPreviewImageTargetsUsesImageAndVideoPosters(t *testing.T) {
 	}, 2)
 
 	if len(targets) != 2 ||
-		targets[0] != "https://scontent.cdninstagram.com/poster.jpg" ||
-		targets[1] != "https://scontent.cdninstagram.com/one.jpg" {
+		targets[0].Index != 1 || targets[0].URL != "https://scontent.cdninstagram.com/poster.jpg" ||
+		targets[1].Index != 2 || targets[1].URL != "https://scontent.cdninstagram.com/one.jpg" {
 		t.Fatalf("targets = %#v", targets)
+	}
+}
+
+func TestPreviewImageUsesCachedSourcesAfterUpstreamURLsExpire(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	urls := []string{
+		"https://scontent.cdninstagram.com/one.jpg?signed=old",
+		"https://scontent.cdninstagram.com/two.jpg?signed=old",
+	}
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:      ref,
+		Username: "loonletwow",
+		Media: []instagram.MediaItem{
+			{Kind: "image", URL: urls[0], ContentType: "image/jpeg"},
+			{Kind: "image", URL: urls[1], ContentType: "image/jpeg"},
+		},
+		Status:    "ok",
+		FetchedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	mediaCache, err := mediacache.Open(t.TempDir(), 4*1024*1024)
+	if err != nil {
+		t.Fatalf("mediacache.Open() error = %v", err)
+	}
+	for i, target := range urls {
+		var body bytes.Buffer
+		if err := jpeg.Encode(&body, solidImage(40+i*10, 40, color.RGBA{R: uint8(100 + i), A: 255}), nil); err != nil {
+			t.Fatalf("jpeg.Encode() error = %v", err)
+		}
+		if _, err := mediaCache.Put(ctx, mediaCacheKey(ref, i+1, "image", target), "image/jpeg", bytes.NewReader(body.Bytes())); err != nil {
+			t.Fatalf("mediaCache.Put() error = %v", err)
+		}
+	}
+
+	upstreamCalls := 0
+	h, err := NewHandlers(Options{
+		PublicBaseURL:    "https://loonstagram.com",
+		CacheSuccessTTL:  time.Hour,
+		CacheNegativeTTL: time.Minute,
+		CacheBlockedTTL:  time.Minute,
+		Store:            store,
+		MediaCache:       mediaCache,
+		Scraper:          &fakePostFetcher{},
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+	h.mediaClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		upstreamCalls++
+		return &http.Response{
+			StatusCode: http.StatusForbidden,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("expired")),
+			Request:    req,
+		}, nil
+	})}
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/preview/p/ABC123xyz/image", nil)
+		rr := httptest.NewRecorder()
+		h.Routes().ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK || rr.Header().Get("Content-Type") != "image/jpeg" {
+			t.Fatalf("request %d status = %d, content type = %q", i+1, rr.Code, rr.Header().Get("Content-Type"))
+		}
+	}
+	if upstreamCalls != 0 {
+		t.Fatalf("upstream calls = %d, want 0", upstreamCalls)
+	}
+}
+
+func TestSinglePreviewCachesUpstreamBeforeURLExpires(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	target := "https://scontent.cdninstagram.com/post.jpg?signed=short-lived"
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       ref,
+		Username:  "loonletwow",
+		Media:     []instagram.MediaItem{{Kind: "image", URL: target, ContentType: "image/jpeg"}},
+		Status:    "ok",
+		FetchedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	mediaCache, err := mediacache.Open(t.TempDir(), 4*1024*1024)
+	if err != nil {
+		t.Fatalf("mediacache.Open() error = %v", err)
+	}
+	var imageBody bytes.Buffer
+	if err := jpeg.Encode(&imageBody, solidImage(80, 60, color.RGBA{R: 120, G: 80, A: 255}), nil); err != nil {
+		t.Fatalf("jpeg.Encode() error = %v", err)
+	}
+	upstreamAvailable := true
+	upstreamCalls := 0
+	h, err := NewHandlers(Options{
+		PublicBaseURL:    "https://loonstagram.com",
+		CacheSuccessTTL:  time.Hour,
+		CacheNegativeTTL: time.Minute,
+		CacheBlockedTTL:  time.Minute,
+		Store:            store,
+		MediaCache:       mediaCache,
+		Scraper:          &fakePostFetcher{},
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+	h.mediaClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		upstreamCalls++
+		status := http.StatusOK
+		body := imageBody.String()
+		if !upstreamAvailable {
+			status = http.StatusForbidden
+			body = "expired"
+		}
+		return &http.Response{
+			StatusCode: status,
+			Header:     http.Header{"Content-Type": []string{"image/jpeg"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    req,
+		}, nil
+	})}
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/preview/p/ABC123xyz/image", nil)
+		rr := httptest.NewRecorder()
+		h.Routes().ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK || rr.Header().Get("Content-Type") != "image/jpeg" {
+			t.Fatalf("request %d status = %d, content type = %q", i+1, rr.Code, rr.Header().Get("Content-Type"))
+		}
+		upstreamAvailable = false
+	}
+	if upstreamCalls != 1 {
+		t.Fatalf("upstream calls = %d, want 1", upstreamCalls)
 	}
 }
 
@@ -412,7 +735,7 @@ func TestGalleryUsesConfiguredProfileAndLocalMediaURLs(t *testing.T) {
 	}
 }
 
-func TestRefreshGalleryFetchesRecentPosts(t *testing.T) {
+func TestRefreshGalleryRefreshesExpiredRecentPosts(t *testing.T) {
 	ctx := context.Background()
 	store, err := cache.Open(ctx, ":memory:")
 	if err != nil {
@@ -424,6 +747,17 @@ func TestRefreshGalleryFetchesRecentPosts(t *testing.T) {
 		t.Fatalf("SaveAutomationConfig() error = %v", err)
 	}
 	ref := instagram.Ref{Type: instagram.TypePost, Shortcode: "ABC123xyz"}
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       ref,
+		Username:  "old",
+		Caption:   "old caption",
+		Media:     []instagram.MediaItem{{Kind: "image", URL: "https://scontent.cdninstagram.com/old.jpg"}},
+		Status:    "ok",
+		FetchedAt: time.Now().Add(-2 * time.Hour),
+		ExpiresAt: time.Now().Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
 	profiles := &fakeProfileFetcher{media: []instagram.RecentMedia{{
 		Ref:          ref,
 		Username:     "loonletwow",
@@ -461,6 +795,9 @@ func TestRefreshGalleryFetchesRecentPosts(t *testing.T) {
 	}
 	if fetcher.calls != 1 {
 		t.Fatalf("post fetch calls = %d, want 1", fetcher.calls)
+	}
+	if post, ok, err := store.Get(ctx, ref, time.Now()); err != nil || !ok || post.Caption != "caption" {
+		t.Fatalf("refreshed post = %#v, ok = %v, err = %v", post, ok, err)
 	}
 	if body := rr.Body.String(); !strings.Contains(body, `"shortcode":"ABC123xyz"`) ||
 		!strings.Contains(body, `"imageUrl":"https://loonstagram.com/gallery-media/p/ABC123xyz/1/image"`) {
@@ -557,6 +894,7 @@ func TestMediaEndpointCachesUpstreamBytes(t *testing.T) {
 		CacheSuccessTTL:  time.Hour,
 		CacheNegativeTTL: time.Minute,
 		CacheBlockedTTL:  time.Minute,
+		MediaProxyMode:   "stream",
 		Store:            store,
 		MediaCache:       mediaCache,
 		Scraper:          &fakePostFetcher{},
@@ -587,6 +925,177 @@ func TestMediaEndpointCachesUpstreamBytes(t *testing.T) {
 	}
 	if upstreamCalls != 1 {
 		t.Fatalf("upstream calls = %d, want 1", upstreamCalls)
+	}
+}
+
+func TestMediaEndpointStreamsUncachedVideoRange(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	ref := instagram.Ref{Type: instagram.TypeReel, Shortcode: "ABC123xyz"}
+	target := "https://scontent.cdninstagram.com/video.mp4"
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       ref,
+		Username:  "loonletwow",
+		Media:     []instagram.MediaItem{{Kind: "video", URL: target, ContentType: "video/mp4"}},
+		Status:    "ok",
+		FetchedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	mediaCache, err := mediacache.Open(t.TempDir(), 1024)
+	if err != nil {
+		t.Fatalf("mediacache.Open() error = %v", err)
+	}
+	h, err := NewHandlers(Options{
+		PublicBaseURL:  "https://loonstagram.com",
+		MediaProxyMode: "stream",
+		Store:          store,
+		MediaCache:     mediaCache,
+		Scraper:        &fakePostFetcher{},
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+	h.mediaClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method == http.MethodHead {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header: http.Header{
+					"Content-Type":   []string{"video/mp4"},
+					"Content-Length": []string{"10"},
+					"Accept-Ranges":  []string{"bytes"},
+				},
+				Body:    io.NopCloser(strings.NewReader("must not be copied")),
+				Request: req,
+			}, nil
+		}
+		if req.Header.Get("Range") == "bytes=100-" {
+			return &http.Response{
+				StatusCode: http.StatusRequestedRangeNotSatisfiable,
+				Header: http.Header{
+					"Content-Range": []string{"bytes */10"},
+					"Accept-Ranges": []string{"bytes"},
+				},
+				Body:    io.NopCloser(strings.NewReader("")),
+				Request: req,
+			}, nil
+		}
+		if got := req.Header.Get("Range"); got != "bytes=2-5" {
+			t.Fatalf("upstream Range = %q", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusPartialContent,
+			Header: http.Header{
+				"Content-Type":   []string{"video/mp4"},
+				"Content-Length": []string{"4"},
+				"Content-Range":  []string{"bytes 2-5/10"},
+				"Accept-Ranges":  []string{"bytes"},
+			},
+			Body:    io.NopCloser(strings.NewReader("2345")),
+			Request: req,
+		}, nil
+	})}
+	h.streamClient = h.mediaClient
+
+	req := httptest.NewRequest(http.MethodGet, "/media/reel/ABC123xyz/1/video", nil)
+	req.Header.Set("Range", "bytes=2-5")
+	rr := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusPartialContent || rr.Body.String() != "2345" {
+		t.Fatalf("status = %d, body = %q", rr.Code, rr.Body.String())
+	}
+	if rr.Header().Get("Content-Range") != "bytes 2-5/10" || rr.Header().Get("Accept-Ranges") != "bytes" {
+		t.Fatalf("range headers = %#v", rr.Header())
+	}
+
+	head := httptest.NewRequest(http.MethodHead, "/media/reel/ABC123xyz/1/video", nil)
+	headRecorder := httptest.NewRecorder()
+	h.Routes().ServeHTTP(headRecorder, head)
+	if headRecorder.Code != http.StatusOK || headRecorder.Body.Len() != 0 || headRecorder.Header().Get("Content-Length") != "10" {
+		t.Fatalf("HEAD status = %d, body bytes = %d, Content-Length = %q", headRecorder.Code, headRecorder.Body.Len(), headRecorder.Header().Get("Content-Length"))
+	}
+
+	unsatisfied := httptest.NewRequest(http.MethodGet, "/media/reel/ABC123xyz/1/video", nil)
+	unsatisfied.Header.Set("Range", "bytes=100-")
+	unsatisfiedRecorder := httptest.NewRecorder()
+	h.Routes().ServeHTTP(unsatisfiedRecorder, unsatisfied)
+	if unsatisfiedRecorder.Code != http.StatusRequestedRangeNotSatisfiable || unsatisfiedRecorder.Header().Get("Content-Range") != "bytes */10" {
+		t.Fatalf("unsatisfied status = %d, Content-Range = %q", unsatisfiedRecorder.Code, unsatisfiedRecorder.Header().Get("Content-Range"))
+	}
+}
+
+func TestMediaEndpointServesCachedRangeBeforeRedirect(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open() error = %v", err)
+	}
+	defer store.Close()
+
+	ref := instagram.Ref{Type: instagram.TypeReel, Shortcode: "ABC123xyz"}
+	target := "https://scontent.cdninstagram.com/video.mp4"
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       ref,
+		Username:  "loonletwow",
+		Media:     []instagram.MediaItem{{Kind: "video", URL: target, ContentType: "video/mp4"}},
+		Status:    "ok",
+		FetchedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	mediaCache, err := mediacache.Open(t.TempDir(), 1024)
+	if err != nil {
+		t.Fatalf("mediacache.Open() error = %v", err)
+	}
+	if _, err := mediaCache.Put(ctx, mediaCacheKey(ref, 1, "video", target), "video/mp4", strings.NewReader("0123456789")); err != nil {
+		t.Fatalf("mediaCache.Put() error = %v", err)
+	}
+	h, err := NewHandlers(Options{
+		PublicBaseURL:  "https://loonstagram.com",
+		MediaProxyMode: "redirect",
+		Store:          store,
+		MediaCache:     mediaCache,
+		Scraper:        &fakePostFetcher{},
+	})
+	if err != nil {
+		t.Fatalf("NewHandlers() error = %v", err)
+	}
+	h.mediaClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatal("cached media request contacted upstream")
+		return nil, errors.New("unexpected upstream call")
+	})}
+
+	req := httptest.NewRequest(http.MethodGet, "/media/reel/ABC123xyz/1/video", nil)
+	req.Header.Set("Range", "bytes=2-5")
+	rr := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusPartialContent || rr.Body.String() != "2345" {
+		t.Fatalf("status = %d, body = %q", rr.Code, rr.Body.String())
+	}
+
+	uncachedTarget := "https://scontent.cdninstagram.com/new-video.mp4"
+	if err := store.Put(ctx, &instagram.Post{
+		Ref:       ref,
+		Username:  "loonletwow",
+		Media:     []instagram.MediaItem{{Kind: "video", URL: uncachedTarget, ContentType: "video/mp4"}},
+		Status:    "ok",
+		FetchedAt: time.Now().Add(time.Second),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/media/reel/ABC123xyz/1/video", nil)
+	rr = httptest.NewRecorder()
+	h.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusFound || rr.Header().Get("Location") != uncachedTarget {
+		t.Fatalf("uncached status = %d, Location = %q", rr.Code, rr.Header().Get("Location"))
 	}
 }
 

@@ -68,6 +68,7 @@ const galleryImageQueue = [];
 let galleryImageActiveLoads = 0;
 let galleryImageObserver = null;
 let galleryImageRenderID = 0;
+let debugSessionReady = false;
 
 function resetGalleryImageLoading() {
   galleryImageRenderID += 1;
@@ -278,8 +279,25 @@ function updateAutomationUI(payload) {
 
 async function loadAutomation() {
   if (!adminToken()) {
+    debugSessionReady = false;
     setAutomationStatus("Enter admin password.", "error");
     return;
+  }
+  debugSessionReady = false;
+  if (viewerDebug) {
+    viewerDebug.hidden = true;
+  }
+
+  async function establishDebugSession() {
+    try {
+      const response = await fetch("/debug/session", {
+        method: "POST",
+        headers: { "X-Admin-Token": adminToken() },
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
   }
 
   adminButton.disabled = true;
@@ -300,12 +318,17 @@ async function loadAutomation() {
       return;
     }
     localStorage.setItem(adminStorageKey, adminToken());
+    debugSessionReady = await establishDebugSession();
     updateAutomationUI(payload);
     setAutomationStatus("Settings unlocked.", "success");
     if (galleryGrid) {
       loadGallery();
     }
+    if (viewer && viewer.open) {
+      renderViewer();
+    }
   } catch {
+    debugSessionReady = false;
     setAutomationStatus("Could not load automation settings.", "error");
     if (adminDialog && !adminDialog.open && typeof adminDialog.showModal === "function") {
       adminDialog.showModal();
@@ -546,7 +569,10 @@ function renderViewer() {
   viewerFixed.dataset.url = post.canonicalUrl || "";
   viewerOriginal.href = post.originalUrl || "#";
   if (viewerDebug) {
-    viewerDebug.href = post.type && post.shortcode ? `/debug/${post.type}/${post.shortcode}` : "#";
+    const token = adminToken();
+    const canDebug = Boolean(post.type && post.shortcode && token && debugSessionReady);
+    viewerDebug.hidden = !canDebug;
+    viewerDebug.href = canDebug ? `/debug/${post.type}/${post.shortcode}` : "#";
   }
 
   if (galleryState.viewerDirection) {

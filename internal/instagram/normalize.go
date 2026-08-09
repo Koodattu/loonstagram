@@ -34,6 +34,9 @@ func NormalizeURL(raw string) (Ref, error) {
 	if len(segments) < 2 {
 		return Ref{}, ErrUnsupportedURL
 	}
+	if len(segments) >= 3 && segments[0] == "share" && IsSupportedType(CanonicalType(segments[1])) {
+		return Ref{}, ErrUnsupportedURL
+	}
 
 	if ref, ok := refFromSegments(segments); ok {
 		return ref, nil

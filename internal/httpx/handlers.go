@@ -16,7 +16,6 @@ import (
 	_ "image/png"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -77,6 +76,7 @@ type Handlers struct {
 	flight              *flight
 	mediaFlight         *mediaFlight
 	mediaClient         *http.Client
+	streamClient        *http.Client
 }
 
 func NewHandlers(opts Options) (*Handlers, error) {
@@ -95,6 +95,17 @@ func NewHandlers(opts Options) (*Handlers, error) {
 	templates, err := template.ParseFS(web.FS, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
+	}
+	mediaTransport := http.DefaultTransport.(*http.Transport).Clone()
+	mediaTransport.ResponseHeaderTimeout = 20 * time.Second
+	checkMediaRedirect := func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return errors.New("too many media redirects")
+		}
+		if !safeRemoteURL(req.URL.String()) {
+			return errors.New("unsafe media redirect")
+		}
+		return nil
 	}
 	return &Handlers{
 		publicBaseURL:       strings.TrimRight(opts.PublicBaseURL, "/"),
@@ -115,16 +126,13 @@ func NewHandlers(opts Options) (*Handlers, error) {
 		flight:              newFlight(),
 		mediaFlight:         newMediaFlight(),
 		mediaClient: &http.Client{
-			Timeout: 20 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) >= 5 {
-					return errors.New("too many media redirects")
-				}
-				if !safeRemoteURL(req.URL.String()) {
-					return errors.New("unsafe media redirect")
-				}
-				return nil
-			},
+			Timeout:       20 * time.Second,
+			Transport:     mediaTransport,
+			CheckRedirect: checkMediaRedirect,
+		},
+		streamClient: &http.Client{
+			Transport:     mediaTransport,
+			CheckRedirect: checkMediaRedirect,
 		},
 	}, nil
 }
@@ -155,6 +163,7 @@ func (h *Handlers) Routes() http.Handler {
 	mux.HandleFunc("POST /api/automation/test", h.testDiscordWebhook)
 	mux.HandleFunc("GET /oauth/discord/start", h.startDiscordOAuth)
 	mux.HandleFunc("GET /oauth/discord/callback", h.discordOAuthCallback)
+	mux.HandleFunc("POST /debug/session", h.debugSession)
 	mux.HandleFunc("GET /debug", h.debugFromQuery)
 	mux.HandleFunc("GET /debug/{type}/{shortcode}", h.debugCanonical)
 	mux.HandleFunc("POST /debug/{type}/{shortcode}/refresh", h.refreshDebugCache)
@@ -383,11 +392,11 @@ func (h *Handlers) refreshGallery(w http.ResponseWriter, r *http.Request) {
 	cached := 0
 	failed := 0
 	for _, item := range media {
-		if post, ok, err := h.store.GetAny(r.Context(), item.Ref); err != nil {
+		if post, ok, err := h.store.Get(r.Context(), item.Ref, now); err != nil {
 			h.logger.Warn("gallery refresh cache read failed", "shortcode", item.Ref.Shortcode, "error", sanitizeLogError(err))
 			failed++
 			continue
-		} else if ok && post.Status == "ok" && len(post.Media) > 0 {
+		} else if ok && !shouldRefreshCachedPost(post) {
 			continue
 		}
 
@@ -629,6 +638,9 @@ func (h *Handlers) warmGalleryMedia(posts []instagram.Post) {
 }
 
 func (h *Handlers) debugFromQuery(w http.ResponseWriter, r *http.Request) {
+	if !h.authorizeDebug(w, r) {
+		return
+	}
 	ref, err := instagram.NormalizeURL(r.URL.Query().Get("url"))
 	if err != nil {
 		http.Error(w, "Unsupported Instagram URL", http.StatusBadRequest)
@@ -637,7 +649,17 @@ func (h *Handlers) debugFromQuery(w http.ResponseWriter, r *http.Request) {
 	h.renderDebug(w, r, ref)
 }
 
+func (h *Handlers) debugSession(w http.ResponseWriter, r *http.Request) {
+	if !h.authorizeDebug(w, r) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handlers) debugCanonical(w http.ResponseWriter, r *http.Request) {
+	if !h.authorizeDebug(w, r) {
+		return
+	}
 	ref, err := instagram.NewRef(r.PathValue("type"), r.PathValue("shortcode"))
 	if err != nil {
 		http.NotFound(w, r)
@@ -766,6 +788,9 @@ func (h *Handlers) renderDebug(w http.ResponseWriter, r *http.Request, ref insta
 }
 
 func (h *Handlers) refreshDebugCache(w http.ResponseWriter, r *http.Request) {
+	if !h.authorizeDebug(w, r) {
+		return
+	}
 	ref, err := instagram.NewRef(r.PathValue("type"), r.PathValue("shortcode"))
 	if err != nil {
 		http.NotFound(w, r)
@@ -1014,8 +1039,12 @@ func (h *Handlers) embedData(post *instagram.Post) embedData {
 
 	images := previewImages(post.Media)
 	for _, image := range images {
+		mediaURL := h.publicURL(fmt.Sprintf("/media/%s/%s/%d/image", post.Ref.Type, post.Ref.Shortcode, image.index))
+		if !post.FetchedAt.IsZero() {
+			mediaURL += "?v=" + strconv.FormatInt(post.FetchedAt.Unix(), 10)
+		}
 		data.Images = append(data.Images, embedImage{
-			URL:    h.publicURL(fmt.Sprintf("/media/%s/%s/%d/image", post.Ref.Type, post.Ref.Shortcode, image.index)),
+			URL:    mediaURL,
 			Width:  image.item.Width,
 			Height: image.item.Height,
 		})
@@ -1088,6 +1117,14 @@ func (h *Handlers) media(kind string) http.HandlerFunc {
 			} else if served {
 				return
 			}
+		}
+
+		if h.mediaProxyMode == "redirect" && r.URL.Query().Get("stream") != "1" {
+			http.Redirect(w, r, target, http.StatusFound)
+			return
+		}
+
+		if kind == "image" && h.mediaCache != nil {
 			if err := h.cacheRemoteMedia(r.Context(), cacheKey, target, contentType); err != nil {
 				h.logger.Warn("media cache fill failed", "key", cacheKey, "shortcode", ref.Shortcode, "media_type", ref.Type, "kind", kind, "error", sanitizeLogError(err))
 				http.Error(w, "Media fetch failed", http.StatusBadGateway)
@@ -1099,11 +1136,6 @@ func (h *Handlers) media(kind string) http.HandlerFunc {
 				return
 			}
 			http.Error(w, "Media cache failed", http.StatusBadGateway)
-			return
-		}
-
-		if h.mediaProxyMode == "redirect" && r.URL.Query().Get("stream") != "1" {
-			http.Redirect(w, r, target, http.StatusFound)
 			return
 		}
 
@@ -1177,10 +1209,18 @@ func (h *Handlers) previewImage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	previewKey := previewCacheKey(ref, targets)
+	if h.mediaCache != nil {
+		if served, err := h.serveCachedMedia(w, r, previewKey); err != nil {
+			h.logger.Warn("preview cache read failed", "key", previewKey, "error", sanitizeLogError(err))
+		} else if served {
+			return
+		}
+	}
 
 	sources := make([]image.Image, 0, len(targets))
 	for _, target := range targets {
-		source, err := h.fetchRemoteImage(r.Context(), target)
+		source, err := h.loadPreviewImage(r.Context(), ref, target)
 		if err != nil {
 			continue
 		}
@@ -1196,6 +1236,24 @@ func (h *Handlers) previewImage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Media fit failed", http.StatusBadGateway)
 		return
 	}
+	if len(sources) == len(targets) && h.mediaCache != nil {
+		if err := h.mediaFlight.Do(previewKey, func() error {
+			if file, _, ok, err := h.mediaCache.Open(previewKey); err != nil {
+				return err
+			} else if ok {
+				_ = file.Close()
+				return nil
+			}
+			_, err := h.mediaCache.Put(r.Context(), previewKey, "image/jpeg", bytes.NewReader(body))
+			return err
+		}); err != nil {
+			h.logger.Warn("preview cache write failed", "key", previewKey, "error", sanitizeLogError(err))
+		} else if served, err := h.serveCachedMedia(w, r, previewKey); err != nil {
+			h.logger.Warn("preview cache serve failed", "key", previewKey, "error", sanitizeLogError(err))
+		} else if served {
+			return
+		}
+	}
 
 	w.Header().Set("Cache-Control", "public, max-age=300")
 	w.Header().Set("Content-Type", "image/jpeg")
@@ -1209,10 +1267,6 @@ func (h *Handlers) getOrFetchPost(ctx context.Context, ref instagram.Ref) (*inst
 	if err != nil {
 		return nil, err
 	}
-	if cachedAnyOK && cachedAny.Status == "ok" && !shouldRefreshCachedPost(cachedAny) {
-		setCacheStatus(ctx, "hit")
-		return cachedAny, nil
-	}
 
 	if post, ok, err := h.store.Get(ctx, ref, now); err != nil {
 		return post, err
@@ -1221,6 +1275,8 @@ func (h *Handlers) getOrFetchPost(ctx context.Context, ref instagram.Ref) (*inst
 			setCacheStatus(ctx, "hit")
 			return post, nil
 		}
+		setCacheStatus(ctx, "stale")
+	} else if cachedAnyOK && cachedAny.Status == "ok" {
 		setCacheStatus(ctx, "stale")
 	} else {
 		setCacheStatus(ctx, "miss")
@@ -1239,9 +1295,6 @@ func (h *Handlers) getOrFetchPost(ctx context.Context, ref instagram.Ref) (*inst
 		}
 		if post, ok, err := h.store.GetAny(ctx, ref); err != nil {
 			return post, err
-		} else if ok && post.Status == "ok" && !shouldRefreshCachedPost(post) {
-			setCacheStatus(ctx, "hit")
-			return post, nil
 		} else if ok && post.Status == "ok" {
 			cachedAny = post
 			cachedAnyOK = true
@@ -1251,16 +1304,6 @@ func (h *Handlers) getOrFetchPost(ctx context.Context, ref instagram.Ref) (*inst
 		start := time.Now()
 		post, err := h.scraper.FetchPost(ctx, ref)
 		if err != nil {
-			if cachedAnyOK && cachedAny.Status == "ok" {
-				h.logger.Warn("scrape failed, preserving cached ok post",
-					"shortcode", ref.Shortcode,
-					"media_type", ref.Type,
-					"duration_ms", time.Since(start).Milliseconds(),
-					"error", sanitizeLogError(err),
-				)
-				setCacheStatus(ctx, "stale_hit")
-				return cachedAny, nil
-			}
 			status := "error"
 			ttl := h.cacheNegativeTTL
 			var fetchErr instagram.FetchError
@@ -1272,6 +1315,23 @@ func (h *Handlers) getOrFetchPost(ctx context.Context, ref instagram.Ref) (*inst
 				case instagram.FetchErrorNotFound:
 					status = "not_found"
 				}
+			}
+			if cachedAnyOK && cachedAny.Status == "ok" {
+				stale := *cachedAny
+				stale.ExpiresAt = now.Add(ttl)
+				if putErr := h.store.Put(ctx, &stale); putErr != nil {
+					h.logger.Warn("could not persist stale cache retry window", "shortcode", ref.Shortcode, "media_type", ref.Type, "error", sanitizeLogError(putErr))
+				} else {
+					cachedAny = &stale
+				}
+				h.logger.Warn("scrape failed, preserving cached ok post",
+					"shortcode", ref.Shortcode,
+					"media_type", ref.Type,
+					"duration_ms", time.Since(start).Milliseconds(),
+					"error", sanitizeLogError(err),
+				)
+				setCacheStatus(ctx, "stale_hit")
+				return cachedAny, nil
 			}
 			post = instagram.FallbackPost(ref, status, sanitizeLogError(err))
 			post.FetchedAt = now
@@ -1314,11 +1374,15 @@ func shouldRefreshCachedPost(post *instagram.Post) bool {
 	if post == nil || post.Status != "ok" {
 		return false
 	}
-	return len(post.Media) == 0 || (post.Username == "" && post.Caption == "")
+	return len(post.Media) == 0 || post.Username == ""
 }
 
 func (h *Handlers) streamMedia(w http.ResponseWriter, r *http.Request, target, fallbackContentType string) {
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target, nil)
+	method := http.MethodGet
+	if r.Method == http.MethodHead {
+		method = http.MethodHead
+	}
+	req, err := http.NewRequestWithContext(r.Context(), method, target, nil)
 	if err != nil {
 		http.Error(w, "Bad upstream media URL", http.StatusBadGateway)
 		return
@@ -1329,13 +1393,19 @@ func (h *Handlers) streamMedia(w http.ResponseWriter, r *http.Request, target, f
 		req.Header.Set("Range", rangeHeader)
 	}
 
-	resp, err := h.mediaClient.Do(req)
+	resp, err := h.streamClient.Do(req)
 	if err != nil {
 		http.Error(w, "Media fetch failed", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
+		copyHeader(w.Header(), resp.Header, "Content-Range")
+		copyHeader(w.Header(), resp.Header, "Accept-Ranges")
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+		return
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		http.Error(w, "Media fetch failed", http.StatusBadGateway)
 		return
@@ -1350,6 +1420,9 @@ func (h *Handlers) streamMedia(w http.ResponseWriter, r *http.Request, target, f
 	}
 	if resp.StatusCode == http.StatusPartialContent {
 		w.WriteHeader(http.StatusPartialContent)
+	}
+	if r.Method == http.MethodHead {
+		return
 	}
 	_, _ = io.Copy(w, resp.Body)
 }
@@ -1377,6 +1450,27 @@ func (h *Handlers) fetchRemoteImage(ctx context.Context, target string) (image.I
 		return nil, err
 	}
 	return source, nil
+}
+
+func (h *Handlers) loadPreviewImage(ctx context.Context, ref instagram.Ref, target previewImageTarget) (image.Image, error) {
+	if h.mediaCache == nil {
+		return h.fetchRemoteImage(ctx, target.URL)
+	}
+
+	key := mediaCacheKey(ref, target.Index, "image", target.URL)
+	if err := h.cacheRemoteMedia(ctx, key, target.URL, target.ContentType); err != nil {
+		return nil, err
+	}
+	file, _, ok, err := h.mediaCache.Open(key)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errors.New("preview media cache entry missing")
+	}
+	defer file.Close()
+	source, _, err := image.Decode(io.LimitReader(file, 16*1024*1024))
+	return source, err
 }
 
 func fitImageJPEG(source image.Image, width, height int) ([]byte, error) {
@@ -1568,22 +1662,37 @@ func previewImages(media []instagram.MediaItem) []indexedMedia {
 	return out
 }
 
-func previewImageTargets(media []instagram.MediaItem, limit int) []string {
+type previewImageTarget struct {
+	Index       int
+	URL         string
+	ContentType string
+}
+
+func previewImageTargets(media []instagram.MediaItem, limit int) []previewImageTarget {
 	if limit <= 0 {
 		return nil
 	}
-	out := make([]string, 0, limit)
-	for _, item := range media {
-		target, _ := mediaTarget("image", item)
+	out := make([]previewImageTarget, 0, limit)
+	for i, item := range media {
+		target, contentType := mediaTarget("image", item)
 		if target == "" || !safeRemoteURL(target) {
 			continue
 		}
-		out = append(out, target)
+		out = append(out, previewImageTarget{Index: i + 1, URL: target, ContentType: contentType})
 		if len(out) >= limit {
 			return out
 		}
 	}
 	return out
+}
+
+func previewCacheKey(ref instagram.Ref, targets []previewImageTarget) string {
+	hash := sha256.New()
+	_, _ = io.WriteString(hash, ref.Type+"\x00"+ref.Shortcode)
+	for _, target := range targets {
+		_, _ = io.WriteString(hash, "\x00"+strconv.Itoa(target.Index)+"\x00"+target.URL)
+	}
+	return "preview_v1_" + hex.EncodeToString(hash.Sum(nil))
 }
 
 func imageCandidate(item instagram.MediaItem) string {
@@ -1616,28 +1725,7 @@ func mediaCacheKey(ref instagram.Ref, index int, kind, target string) string {
 }
 
 func safeRemoteURL(raw string) bool {
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Host == "" {
-		return false
-	}
-	if parsed.Scheme != "https" && parsed.Scheme != "http" {
-		return false
-	}
-	host := strings.ToLower(parsed.Hostname())
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return false
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return true
-	}
-	return !ip.IsLoopback() &&
-		!ip.IsPrivate() &&
-		!ip.IsLinkLocalUnicast() &&
-		!ip.IsUnspecified() &&
-		!ip.IsMulticast() &&
-		!ip.IsInterfaceLocalMulticast() &&
-		!ip.IsLinkLocalMulticast()
+	return instagram.IsInstagramMediaURL(raw)
 }
 
 func sanitizeLogError(err error) string {

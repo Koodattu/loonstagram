@@ -126,7 +126,7 @@ func TestPollerSeedsFirstRunAndPostsNewMedia(t *testing.T) {
 	}
 }
 
-func TestPollerDoesNotRefetchCachedInitialPosts(t *testing.T) {
+func TestPollerRefreshesExpiredCachedInitialPosts(t *testing.T) {
 	ctx := context.Background()
 	store, err := cache.Open(ctx, ":memory:")
 	if err != nil {
@@ -167,8 +167,15 @@ func TestPollerDoesNotRefetchCachedInitialPosts(t *testing.T) {
 	if err := poller.CheckOnce(ctx); err != nil {
 		t.Fatalf("CheckOnce() error = %v", err)
 	}
-	if len(posts.calls) != 0 {
-		t.Fatalf("post fetches = %d, want 0", len(posts.calls))
+	if len(posts.calls) != 1 {
+		t.Fatalf("post fetches = %d, want 1", len(posts.calls))
+	}
+	post, ok, err := store.Get(ctx, ref, time.Now())
+	if err != nil || !ok {
+		t.Fatalf("Get() = %#v, %v, %v", post, ok, err)
+	}
+	if post.Caption != "cached ABC123xyz" || !post.ExpiresAt.After(time.Now()) {
+		t.Fatalf("refreshed post = %#v", post)
 	}
 }
 

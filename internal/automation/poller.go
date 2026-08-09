@@ -297,14 +297,9 @@ func (p *Poller) ensurePostCached(ctx context.Context, item instagram.RecentMedi
 	if p.posts == nil {
 		return nil
 	}
-	if post, ok, err := p.store.GetAny(ctx, item.Ref); err != nil {
+	if post, ok, err := p.store.Get(ctx, item.Ref, now); err != nil {
 		return err
-	} else if ok && post.Status == "ok" && len(post.Media) > 0 {
-		return nil
-	}
-	if _, ok, err := p.store.Get(ctx, item.Ref, now); err != nil {
-		return err
-	} else if ok {
+	} else if ok && (post.Status != "ok" || post.Username != "" && len(post.Media) > 0) {
 		return nil
 	}
 

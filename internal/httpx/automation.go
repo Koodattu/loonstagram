@@ -2,7 +2,9 @@ package httpx
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
@@ -11,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -346,6 +349,42 @@ func (h *Handlers) authorizeAdmin(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 
+	token := adminTokenFromHeaders(r)
+	if token == "" {
+		token = r.URL.Query().Get("admin_token")
+	}
+
+	if !h.validAdminToken(token) {
+		writeJSON(w, http.StatusForbidden, automationResponse{OK: false, Error: "Forbidden"})
+		return false
+	}
+	return true
+}
+
+const debugAuthCookieName = "loonstagram_debug_auth"
+const debugAuthTTL = 8 * time.Hour
+
+func (h *Handlers) authorizeDebug(w http.ResponseWriter, r *http.Request) bool {
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	if h.adminToken == "" {
+		writeJSON(w, http.StatusServiceUnavailable, automationResponse{OK: false, Error: "ADMIN_TOKEN is not configured"})
+		return false
+	}
+
+	if token := adminTokenFromHeaders(r); token != "" && h.validAdminToken(token) {
+		h.setDebugAuthCookie(w)
+		return true
+	}
+	if cookie, err := r.Cookie(debugAuthCookieName); err == nil && h.validDebugAuthCookie(cookie.Value, time.Now()) {
+		return true
+	}
+
+	writeJSON(w, http.StatusForbidden, automationResponse{OK: false, Error: "Forbidden"})
+	return false
+}
+
+func adminTokenFromHeaders(r *http.Request) string {
 	token := r.Header.Get("X-Admin-Token")
 	if token == "" {
 		const bearerPrefix = "Bearer "
@@ -353,15 +392,49 @@ func (h *Handlers) authorizeAdmin(w http.ResponseWriter, r *http.Request) bool {
 			token = strings.TrimSpace(strings.TrimPrefix(value, bearerPrefix))
 		}
 	}
-	if token == "" {
-		token = r.URL.Query().Get("admin_token")
-	}
+	return token
+}
 
-	if len(token) != len(h.adminToken) || subtle.ConstantTimeCompare([]byte(token), []byte(h.adminToken)) != 1 {
-		writeJSON(w, http.StatusForbidden, automationResponse{OK: false, Error: "Forbidden"})
+func (h *Handlers) validAdminToken(token string) bool {
+	return constantTimeTokenEqual(token, h.adminToken)
+}
+
+func constantTimeTokenEqual(value, expected string) bool {
+	return len(value) == len(expected) && subtle.ConstantTimeCompare([]byte(value), []byte(expected)) == 1
+}
+
+func (h *Handlers) debugAuthCookieValue(expiresAt time.Time) string {
+	expires := strconv.FormatInt(expiresAt.Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(h.adminToken))
+	_, _ = io.WriteString(mac, "loonstagram-debug:"+expires)
+	return expires + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func (h *Handlers) validDebugAuthCookie(value string, now time.Time) bool {
+	expires, signature, ok := strings.Cut(value, ".")
+	if !ok || signature == "" {
 		return false
 	}
-	return true
+	expiresUnix, err := strconv.ParseInt(expires, 10, 64)
+	if err != nil || !time.Unix(expiresUnix, 0).After(now) {
+		return false
+	}
+	expected := h.debugAuthCookieValue(time.Unix(expiresUnix, 0))
+	return constantTimeTokenEqual(value, expected)
+}
+
+func (h *Handlers) setDebugAuthCookie(w http.ResponseWriter) {
+	expiresAt := time.Now().Add(debugAuthTTL)
+	http.SetCookie(w, &http.Cookie{
+		Name:     debugAuthCookieName,
+		Value:    h.debugAuthCookieValue(expiresAt),
+		Path:     "/debug",
+		Expires:  expiresAt,
+		MaxAge:   int(debugAuthTTL.Seconds()),
+		HttpOnly: true,
+		Secure:   strings.HasPrefix(strings.ToLower(h.publicBaseURL), "https://"),
+		SameSite: http.SameSiteStrictMode,
+	})
 }
 
 func (h *Handlers) discordOAuthConfigured() bool {

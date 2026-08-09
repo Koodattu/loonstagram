@@ -80,13 +80,13 @@ Required:
 Optional defaults:
 
 - `LISTEN_ADDR=:3000`
-- `CACHE_SUCCESS_TTL=6h` (kept for compatibility; complete successful post caches are retained permanently)
+- `CACHE_SUCCESS_TTL=6h` (successful metadata is refreshed after this interval; the stale row remains available if refresh fails)
 - `CACHE_NEGATIVE_TTL=15m`
 - `CACHE_BLOCKED_TTL=5m`
 - `HTTP_CLIENT_TIMEOUT=8s`
 - `MEDIA_PROXY_MODE=redirect`
 - `ENABLE_INSTAGRAM_GQL_FALLBACK=false` (reserved for later fallback support)
-- `ADMIN_TOKEN=` (when set, unlocks automation settings in the web UI)
+- `ADMIN_TOKEN=` (required for automation settings and debug routes)
 - `AUTOMATION_POLL_INTERVAL=30m` (startup fallback; admin settings can override the poll interval)
 - `INSTAGRAM_WEB_APP_ID=936619743392459`
 - `INSTAGRAM_SESSION_ID=` (optional self-hosted fallback for Instagram profile polling)
@@ -130,14 +130,14 @@ Instagram polling watches a public username through Instagram's web profile endp
 
 ## Debug URLs
 
-Open:
+Open a debug link from the authenticated gallery UI, or request one with the admin token:
 
-```text
-http://localhost:8080/debug/p/ABC123xyz
-http://localhost:8080/debug?url=https%3A%2F%2Fwww.instagram.com%2Fp%2FABC123xyz%2F
+```sh
+curl -H "X-Admin-Token: $ADMIN_TOKEN" http://localhost:8080/debug/p/ABC123xyz
+curl -H "X-Admin-Token: $ADMIN_TOKEN" "http://localhost:8080/debug?url=https%3A%2F%2Fwww.instagram.com%2Fp%2FABC123xyz%2F"
 ```
 
-The debug page performs fresh Instagram fetches, shows cache state, raw upstream bodies, extracted JSON blocks, clickable Instagram image candidates, parsed post data, media previews, and fetch or parse errors. Response headers that can carry secrets, such as `Set-Cookie`, are redacted.
+Debug responses are private and not cached. The page performs fresh Instagram fetches, shows cache state, raw upstream bodies, extracted JSON blocks, clickable Instagram image candidates, parsed post data, media previews, and fetch or parse errors. Response headers that can carry secrets, such as `Set-Cookie`, are redacted.
 
 Private or login-only Instagram content is not supported. Metadata scraping is best effort and falls back to a minimal preview when Instagram cannot be fetched.
 

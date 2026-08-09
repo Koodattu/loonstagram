@@ -30,7 +30,7 @@ func ParseEmbedHTML(ref Ref, body string) (*Post, error) {
 	for _, key := range []string{"shortcode_media", "xdt_shortcode_media"} {
 		for _, raw := range extractJSONValuesAfterKey(body, key, 4) {
 			var node map[string]any
-			if err := unmarshalJSONValue(raw, &node); err == nil {
+			if err := unmarshalJSONValue(raw, &node); err == nil && nodeMatchesRef(node, ref, true) {
 				applyGraphQLNode(post, node)
 			}
 			if post.Username != "" && post.Caption != "" && len(post.Media) > 0 {
@@ -43,15 +43,23 @@ func ParseEmbedHTML(ref Ref, body string) (*Post, error) {
 	}
 
 	if post.Username == "" || post.Caption == "" || len(post.Media) == 0 {
-		applyInstagramAPIFallback(post, body)
+		applyInstagramAPIFallback(post, body, ref)
 	}
 
+	hasStructuredMedia := len(post.Media) > 0
 	meta := parseMetaTags(body)
+	if canonicalURL := meta["og:url"]; canonicalURL != "" && !metadataURLMatchesRef(canonicalURL, ref) {
+		return nil, errors.New("instagram metadata did not match requested post")
+	}
+	if !hasStructuredMedia && meta["og:url"] == "" {
+		return nil, errors.New("instagram metadata did not identify the requested post")
+	}
 	applyMetaFallback(post, meta)
 	applyRawBodyImageCandidates(post, body)
 
 	post.Caption = CleanCaption(post.Caption)
-	if post.Username == "" && post.Caption == "" {
+	post.Media = filterInstagramMedia(post.Media)
+	if post.Username == "" || len(post.Media) == 0 {
 		return nil, errors.New("no usable instagram metadata found")
 	}
 
@@ -116,16 +124,26 @@ func bestSameFileImage(currentURL string, currentWidth, currentHeight int, byFil
 	return best
 }
 
-func applyInstagramAPIFallback(post *Post, body string) {
+func applyInstagramAPIFallback(post *Post, body string, ref Ref) {
 	for _, raw := range extractJSONValuesAfterKey(body, "items", 24) {
 		var items []any
 		if err := unmarshalJSONValue(raw, &items); err != nil {
 			continue
 		}
-		if applyInstagramAPIItems(post, items) {
+		if applyInstagramAPIItems(post, items, ref) {
 			return
 		}
 	}
+}
+
+func nodeMatchesRef(node map[string]any, ref Ref, allowMissing bool) bool {
+	shortcode := firstString(asString(node["shortcode"]), asString(node["code"]))
+	return shortcode == ref.Shortcode || allowMissing && shortcode == ""
+}
+
+func metadataURLMatchesRef(raw string, ref Ref) bool {
+	parsed, err := NormalizeURL(raw)
+	return err == nil && parsed.Shortcode == ref.Shortcode
 }
 
 func CleanCaption(value string) string {
@@ -204,10 +222,10 @@ func applyGraphQLNode(post *Post, node map[string]any) {
 	}
 }
 
-func applyInstagramAPIItems(post *Post, items []any) bool {
+func applyInstagramAPIItems(post *Post, items []any, ref Ref) bool {
 	for _, item := range items {
 		node := asMap(item)
-		if node == nil || !looksLikeInstagramAPIItem(node) {
+		if node == nil || !nodeMatchesRef(node, ref, false) || !looksLikeInstagramAPIItem(node) {
 			continue
 		}
 		beforeUsername := post.Username
@@ -441,6 +459,46 @@ func normalizeInstagramMediaURL(raw string) string {
 		raw = decoded
 	}
 	return html.UnescapeString(raw)
+}
+
+func IsInstagramMediaURL(raw string) bool {
+	raw = normalizeInstagramMediaURL(raw)
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil {
+		return false
+	}
+	if port := parsed.Port(); port != "" && port != "443" {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "cdninstagram.com" || strings.HasSuffix(host, ".cdninstagram.com") ||
+		host == "fbcdn.net" || strings.HasSuffix(host, ".fbcdn.net")
+}
+
+func filterInstagramMedia(media []MediaItem) []MediaItem {
+	out := make([]MediaItem, 0, len(media))
+	for _, item := range media {
+		if !IsInstagramMediaURL(item.URL) || LooksProfileImageURL(item.URL) {
+			item.URL = ""
+		}
+		if !IsInstagramMediaURL(item.PosterURL) || LooksProfileImageURL(item.PosterURL) {
+			item.PosterURL = ""
+		}
+		switch item.Kind {
+		case "image":
+			if item.URL == "" {
+				continue
+			}
+		case "video":
+			if item.URL == "" && item.PosterURL == "" {
+				continue
+			}
+		default:
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func mediaURLDimensions(raw string) (int, int) {
