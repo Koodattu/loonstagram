@@ -1,0 +1,278 @@
+.page-loondoku {
+  background:
+    radial-gradient(circle at 18% 0%, oklch(0.32 0.1 348 / 0.2), transparent 34rem),
+    var(--bg);
+}
+
+.loondoku-shell {
+  width: min(100% - 28px, 900px);
+  margin: 0 auto;
+  padding: 24px 0 48px;
+}
+
+.loondoku-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+  margin-bottom: 22px;
+}
+
+.loondoku-wordmark {
+  flex: 0 0 auto;
+  font-size: 2.15rem;
+}
+
+.loondoku-head div {
+  max-width: 470px;
+  text-align: right;
+}
+
+.loondoku-head h1,
+.loondoku-side h2 {
+  margin: 0;
+  line-height: 1.1;
+}
+
+.loondoku-head h1 {
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  letter-spacing: -0.045em;
+}
+
+.loondoku-head p,
+.loondoku-help,
+.loondoku-credit {
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.loondoku-head p {
+  margin: 7px 0 0;
+}
+
+.loondoku-game {
+  display: grid;
+  grid-template-columns: minmax(0, 560px) minmax(220px, 1fr);
+  align-items: start;
+  gap: 18px;
+}
+
+.loondoku-board-panel {
+  min-width: 0;
+}
+
+.loondoku-board {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  overflow: hidden;
+  border: 3px solid oklch(0.78 0.11 348);
+  border-radius: 12px;
+  background: var(--line);
+  box-shadow: 0 18px 42px oklch(0 0 0 / 0.36);
+}
+
+button.loondoku-cell {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  aspect-ratio: 1;
+  padding: 7%;
+  border-radius: 0;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: oklch(0.16 0.008 260);
+  box-shadow: none;
+  cursor: pointer;
+  transition: background-color 120ms var(--ease-standard), filter 120ms var(--ease-standard);
+}
+
+button.loondoku-cell:nth-child(3n):not(:nth-child(9n)) {
+  border-right: 3px solid oklch(0.78 0.11 348);
+}
+
+button.loondoku-cell:nth-child(n + 19):nth-child(-n + 27),
+button.loondoku-cell:nth-child(n + 46):nth-child(-n + 54) {
+  border-bottom: 3px solid oklch(0.78 0.11 348);
+}
+
+button.loondoku-cell:nth-child(9n) {
+  border-right: 0;
+}
+
+button.loondoku-cell:nth-child(n + 73) {
+  border-bottom: 0;
+}
+
+button.loondoku-cell:hover {
+  background: oklch(0.23 0.025 348);
+}
+
+button.loondoku-cell:active,
+button.loondoku-cell.is-given:active {
+  transform: none;
+}
+
+button.loondoku-cell.is-given {
+  background: oklch(0.205 0.016 300);
+  cursor: default;
+}
+
+button.loondoku-cell.is-matching {
+  background: oklch(0.25 0.045 348);
+}
+
+button.loondoku-cell.is-selected {
+  z-index: 2;
+  background: oklch(0.29 0.06 348);
+  box-shadow: inset 0 0 0 3px var(--focus);
+}
+
+button.loondoku-cell.is-conflict,
+button.loondoku-cell.is-wrong {
+  background: oklch(0.3 0.09 25);
+}
+
+button.loondoku-cell:focus-visible {
+  z-index: 3;
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+}
+
+.loondoku-cell img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 2px oklch(0 0 0 / 0.3));
+}
+
+.loondoku-board.is-complete {
+  border-color: var(--success);
+  box-shadow: 0 0 0 5px oklch(0.76 0.13 155 / 0.16), 0 18px 42px oklch(0 0 0 / 0.36);
+}
+
+.loondoku-side {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+
+.loondoku-side h2 {
+  font-size: 1.05rem;
+}
+
+.loondoku-help,
+.loondoku-credit {
+  margin: 5px 0 0;
+  font-size: 0.88rem;
+}
+
+.loondoku-palette {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+button.loondoku-choice {
+  min-width: 0;
+  min-height: 0;
+  aspect-ratio: 1;
+  padding: 7px;
+  color: var(--ink);
+  background: var(--surface-strong);
+  box-shadow: var(--control-ring);
+}
+
+button.loondoku-choice:hover {
+  background: oklch(0.3 0.035 348);
+}
+
+button.loondoku-choice[aria-pressed="true"] {
+  background: oklch(0.32 0.07 348);
+  box-shadow: inset 0 0 0 2px var(--pink);
+}
+
+.loondoku-choice img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.loondoku-status {
+  min-height: 42px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.loondoku-status[data-kind="error"] {
+  color: var(--error);
+}
+
+.loondoku-status[data-kind="success"] {
+  color: var(--success);
+}
+
+.loondoku-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.loondoku-credit a {
+  color: var(--ink);
+}
+
+@media (max-width: 760px) {
+  .loondoku-shell {
+    width: min(100% - 20px, 560px);
+    padding-top: 16px;
+  }
+
+  .loondoku-head {
+    display: grid;
+    gap: 14px;
+  }
+
+  .loondoku-head div {
+    text-align: left;
+  }
+
+  .loondoku-game {
+    grid-template-columns: 1fr;
+  }
+
+  .loondoku-side {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 0.8fr);
+    align-items: start;
+  }
+
+  .loondoku-palette {
+    grid-row: span 3;
+  }
+}
+
+@media (max-width: 480px) {
+  .loondoku-head h1 {
+    font-size: 2.25rem;
+  }
+
+  .loondoku-side {
+    grid-template-columns: 1fr;
+  }
+
+  .loondoku-palette {
+    grid-row: auto;
+  }
+
+  button.loondoku-cell {
+    padding: 4%;
+  }
+}

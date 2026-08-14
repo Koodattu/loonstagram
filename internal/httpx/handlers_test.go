@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,6 +21,29 @@ import (
 	"Loonstagram/internal/mediacache"
 	"Loonstagram/web"
 )
+
+func TestLoondokuRoute(t *testing.T) {
+	templates, err := template.ParseFS(web.FS, "templates/*.html")
+	if err != nil {
+		t.Fatalf("ParseFS() error = %v", err)
+	}
+	h := &Handlers{templates: templates, logger: slog.Default()}
+	req := httptest.NewRequest(http.MethodGet, "/loondoku", nil)
+	rr := httptest.NewRecorder()
+
+	h.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if contentType := rr.Header().Get("Content-Type"); contentType != "text/html; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", contentType)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `id="loondoku-board"`) || !strings.Contains(body, `src="/static/loondoku.js`) {
+		t.Fatalf("response does not contain the Loondoku page\n%s", body)
+	}
+}
 
 func TestEmbedDataUsesUsernameCaptionThemeAndMultipleImages(t *testing.T) {
 	h := &Handlers{publicBaseURL: "https://loonstagram.com"}

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>Loondoku</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <link rel="stylesheet" href="/static/loondoku.css?v=20260814">
+  </head>
+  <body class="page-loondoku">
+    <main class="loondoku-shell">
+      <header class="loondoku-head">
+        <a class="wordmark loondoku-wordmark" href="/" aria-label="Loonstagram home">Loonstagram</a>
+        <div>
+          <h1>Loondoku</h1>
+          <p>Fill every row, column, and 3 x 3 box with each pink-ribbon Pepe once.</p>
+        </div>
+      </header>
+
+      <section class="loondoku-game" aria-label="Loondoku puzzle">
+        <div class="loondoku-board-panel">
+          <div id="loondoku-board" class="loondoku-board" role="grid" aria-label="9 by 9 Loondoku board"></div>
+          <noscript>Loondoku needs JavaScript enabled to play.</noscript>
+        </div>
+
+        <aside class="loondoku-side" aria-label="Game controls">
+          <div>
+            <h2>Pick a Pepe</h2>
+            <p class="loondoku-help">Select a square, then choose its Pepe.</p>
+          </div>
+          <div id="loondoku-palette" class="loondoku-palette" aria-label="Pepe choices"></div>
+          <p id="loondoku-status" class="loondoku-status" role="status" aria-live="polite"></p>
+          <div class="loondoku-actions">
+            <button id="loondoku-check" type="button">Check</button>
+            <button id="loondoku-reset" class="secondary" type="button">Reset</button>
+          </div>
+          <p class="loondoku-credit">Pink-ribbon Pepes from <a href="https://www.twitch.tv/loonlet" target="_blank" rel="noopener">Loonlet's</a> 7TV set.</p>
+        </aside>
+      </section>
+    </main>
+
+    <script src="/static/loondoku.js?v=20260814" defer></script>
+  </body>
+</html>

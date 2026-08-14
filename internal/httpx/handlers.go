@@ -143,6 +143,7 @@ func (h *Handlers) Routes() http.Handler {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(staticFS)))
 	mux.HandleFunc("GET /healthz", h.health)
 	mux.HandleFunc("GET /", h.home)
+	mux.HandleFunc("GET /loondoku", h.loondoku)
 	mux.HandleFunc("GET /admin", h.admin)
 	mux.HandleFunc("GET /api/cache/status", h.cacheStatus)
 	mux.HandleFunc("GET /api/gallery", h.gallery)
@@ -189,6 +190,13 @@ func (h *Handlers) admin(w http.ResponseWriter, r *http.Request) {
 		"PublicBaseURL": h.publicBaseURL,
 	}); err != nil {
 		h.logger.Error("render admin", "error", err)
+	}
+}
+
+func (h *Handlers) loondoku(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.templates.ExecuteTemplate(w, "loondoku.html", nil); err != nil {
+		h.logger.Error("render loondoku", "error", err)
 	}
 }
 
