@@ -1,13 +1,13 @@
 const LOONDOKU_EMOTES = [
-  { name: "peepoBlushPhone", src: "/static/loondoku/peepo-blush-phone.png" },
-  { name: "peepoCute", src: "/static/loondoku/peepo-cute.png" },
-  { name: "peepoFlower", src: "/static/loondoku/peepo-flower.png" },
-  { name: "peepoNotes", src: "/static/loondoku/peepo-notes.png" },
-  { name: "peepoShrug", src: "/static/loondoku/peepo-shrug.png" },
-  { name: "peepoSip", src: "/static/loondoku/peepo-sip.png" },
-  { name: "Comfi", src: "/static/loondoku/comfi.png" },
-  { name: "cowoffee", src: "/static/loondoku/cowoffee.png" },
-  { name: "cuteSitFriendship", src: "/static/loondoku/cute-sit-friendship.png" },
+  { name: "Deadge", src: "/static/loondoku/deadge.png" },
+  { name: "Gladge", src: "/static/loondoku/gladge.png" },
+  { name: "iAsk", src: "/static/loondoku/i-ask.png" },
+  { name: "owoBed", src: "/static/loondoku/owo-bed.png" },
+  { name: "Pausers", src: "/static/loondoku/pausers.png" },
+  { name: "Smadge", src: "/static/loondoku/smadge.png" },
+  { name: "Stare", src: "/static/loondoku/stare.png" },
+  { name: "sitt", src: "/static/loondoku/sitt.png" },
+  { name: "nise", src: "/static/loondoku/nise.png" },
 ];
 
 const LOONDOKU_SOLUTION = [
@@ -38,9 +38,11 @@ const board = document.querySelector("#loondoku-board");
 const palette = document.querySelector("#loondoku-palette");
 const status = document.querySelector("#loondoku-status");
 const checkButton = document.querySelector("#loondoku-check");
+const emptyButton = document.querySelector("#loondoku-empty");
 const resetButton = document.querySelector("#loondoku-reset");
+const resetDialog = document.querySelector("#loondoku-reset-dialog");
 
-if (board && palette && status && checkButton && resetButton) {
+if (board && palette && status && checkButton && emptyButton && resetButton && resetDialog) {
   const cells = [];
   const choices = [];
   let values = LOONDOKU_PUZZLE.slice();
@@ -132,6 +134,7 @@ if (board && palette && status && checkButton && resetButton) {
     choices.forEach((choice, index) => {
       choice.setAttribute("aria-pressed", selectedValue === index + 1 ? "true" : "false");
     });
+    emptyButton.disabled = LOONDOKU_PUZZLE[selectedIndex] !== 0 || selectedValue === 0;
   }
 
   function updateProgress() {
@@ -162,9 +165,14 @@ if (board && palette && status && checkButton && resetButton) {
       setStatus("Choose an empty square first.");
       return;
     }
+    if (values[selectedIndex] === value) return;
     values[selectedIndex] = value;
     showMistakes = false;
     render();
+    const changedCell = cells[selectedIndex];
+    const feedbackClass = value === 0 ? "is-cleared" : "is-placed";
+    changedCell.classList.add(feedbackClass);
+    window.setTimeout(() => changedCell.classList.remove(feedbackClass), 220);
     updateProgress();
   }
 
@@ -187,8 +195,6 @@ if (board && palette && status && checkButton && resetButton) {
       else if (event.key === "ArrowDown") moveSelection(1, 0);
       else if (event.key === "ArrowLeft") moveSelection(0, -1);
       else if (event.key === "ArrowRight") moveSelection(0, 1);
-      else if (/^[1-9]$/.test(event.key)) placeValue(Number(event.key));
-      else if (event.key === "Backspace" || event.key === "Delete" || event.key === "0") placeValue(0);
       else return;
       event.preventDefault();
     });
@@ -201,9 +207,14 @@ if (board && palette && status && checkButton && resetButton) {
     choice.type = "button";
     choice.className = "loondoku-choice";
     choice.title = emote.name;
-    choice.setAttribute("aria-label", `Place ${emote.name}`);
+    choice.setAttribute("aria-label", `Place ${emote.name}, key ${index + 1}`);
     choice.setAttribute("aria-pressed", "false");
     choice.append(emoteImage(index + 1));
+    const key = document.createElement("span");
+    key.className = "loondoku-key";
+    key.textContent = String(index + 1);
+    key.setAttribute("aria-hidden", "true");
+    choice.append(key);
     choice.addEventListener("click", () => placeValue(index + 1));
     palette.append(choice);
     choices.push(choice);
@@ -224,7 +235,7 @@ if (board && palette && status && checkButton && resetButton) {
     }
   });
 
-  resetButton.addEventListener("click", () => {
+  function resetGame() {
     values = LOONDOKU_PUZZLE.slice();
     selectedIndex = values.findIndex((value) => value === 0);
     showMistakes = false;
@@ -232,6 +243,33 @@ if (board && palette && status && checkButton && resetButton) {
     render();
     updateProgress();
     cells[selectedIndex].focus();
+  }
+
+  emptyButton.addEventListener("click", () => placeValue(0));
+
+  resetButton.addEventListener("click", () => {
+    resetDialog.returnValue = "";
+    resetDialog.showModal();
+  });
+
+  resetDialog.addEventListener("close", () => {
+    if (resetDialog.returnValue === "reset") {
+      resetGame();
+    } else {
+      resetButton.focus();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || resetDialog.open) return;
+    if (/^[1-9]$/.test(event.key)) {
+      placeValue(Number(event.key));
+    } else if (event.key === "Backspace" || event.key === "Delete" || event.key === "0") {
+      placeValue(0);
+    } else {
+      return;
+    }
+    event.preventDefault();
   });
 
   render();

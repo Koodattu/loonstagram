@@ -6,7 +6,7 @@
     <meta name="robots" content="noindex">
     <title>Loondoku</title>
     <link rel="stylesheet" href="/static/app.css">
-    <link rel="stylesheet" href="/static/loondoku.css?v=20260814">
+    <link rel="stylesheet" href="/static/loondoku.css?v=20260814-2">
   </head>
   <body class="page-loondoku">
     <main class="loondoku-shell">
@@ -14,7 +14,7 @@
         <a class="wordmark loondoku-wordmark" href="/" aria-label="Loonstagram home">Loonstagram</a>
         <div>
           <h1>Loondoku</h1>
-          <p>Fill every row, column, and 3 x 3 box with each pink-ribbon Pepe once.</p>
+          <p>Fill every row, column, and 3 × 3 box with each pink-ribbon Pepe once.</p>
         </div>
       </header>
 
@@ -27,9 +27,13 @@
         <aside class="loondoku-side" aria-label="Game controls">
           <div>
             <h2>Pick a Pepe</h2>
-            <p class="loondoku-help">Select a square, then choose its Pepe.</p>
+            <p class="loondoku-help">Select a square, then click a Pepe or press its number.</p>
           </div>
           <div id="loondoku-palette" class="loondoku-palette" aria-label="Pepe choices"></div>
+          <button id="loondoku-empty" class="secondary loondoku-empty" type="button">
+            <span>Empty square</span>
+            <kbd>0</kbd>
+          </button>
           <p id="loondoku-status" class="loondoku-status" role="status" aria-live="polite"></p>
           <div class="loondoku-actions">
             <button id="loondoku-check" type="button">Check</button>
@@ -40,6 +44,17 @@
       </section>
     </main>
 
-    <script src="/static/loondoku.js?v=20260814" defer></script>
+    <dialog id="loondoku-reset-dialog" class="loondoku-dialog" aria-labelledby="loondoku-reset-title" aria-describedby="loondoku-reset-copy">
+      <form method="dialog">
+        <h2 id="loondoku-reset-title">Reset this puzzle?</h2>
+        <p id="loondoku-reset-copy">Your entries will be cleared.</p>
+        <div class="loondoku-dialog-actions">
+          <button class="secondary" type="submit" value="cancel" autofocus>Keep playing</button>
+          <button type="submit" value="reset">Reset puzzle</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/static/loondoku.js?v=20260814-2" defer></script>
   </body>
 </html>

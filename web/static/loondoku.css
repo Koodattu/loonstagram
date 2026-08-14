@@ -133,6 +133,14 @@ button.loondoku-cell.is-wrong {
   background: oklch(0.3 0.09 25);
 }
 
+button.loondoku-cell.is-placed img {
+  animation: loondoku-place 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+button.loondoku-cell.is-cleared {
+  animation: loondoku-clear 160ms ease-out;
+}
+
 button.loondoku-cell:focus-visible {
   z-index: 3;
   outline: 3px solid var(--focus);
@@ -182,6 +190,7 @@ button.loondoku-choice {
   min-width: 0;
   min-height: 0;
   aspect-ratio: 1;
+  position: relative;
   padding: 7px;
   color: var(--ink);
   background: var(--surface-strong);
@@ -203,6 +212,38 @@ button.loondoku-choice[aria-pressed="true"] {
   display: block;
   object-fit: contain;
   pointer-events: none;
+}
+
+.loondoku-key {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  min-width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--ink);
+  background: oklch(0.08 0 0 / 0.78);
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.loondoku-empty {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.loondoku-empty kbd {
+  min-width: 25px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  color: var(--muted);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: 750 0.78rem/1 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 .loondoku-status {
@@ -230,6 +271,67 @@ button.loondoku-choice[aria-pressed="true"] {
   color: var(--ink);
 }
 
+.loondoku-dialog {
+  width: min(100% - 28px, 390px);
+  padding: 0;
+  color: var(--ink);
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.loondoku-dialog::backdrop {
+  background: oklch(0 0 0 / 0.78);
+}
+
+.loondoku-dialog[open] {
+  animation: viewer-in 160ms var(--ease-out-quint) both;
+}
+
+.loondoku-dialog form {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+
+.loondoku-dialog h2,
+.loondoku-dialog p {
+  margin: 0;
+}
+
+.loondoku-dialog h2 {
+  font-size: 1.1rem;
+}
+
+.loondoku-dialog p {
+  color: var(--muted);
+}
+
+.loondoku-dialog-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+@keyframes loondoku-place {
+  from {
+    opacity: 0.55;
+    transform: scale(0.78);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes loondoku-clear {
+  45% {
+    background: oklch(0.34 0.08 348);
+  }
+}
+
 @media (max-width: 760px) {
   .loondoku-shell {
     width: min(100% - 20px, 560px);
@@ -250,12 +352,7 @@ button.loondoku-choice[aria-pressed="true"] {
   }
 
   .loondoku-side {
-    grid-template-columns: minmax(0, 1fr) minmax(180px, 0.8fr);
-    align-items: start;
-  }
-
-  .loondoku-palette {
-    grid-row: span 3;
+    grid-template-columns: 1fr;
   }
 }
 
@@ -264,15 +361,15 @@ button.loondoku-choice[aria-pressed="true"] {
     font-size: 2.25rem;
   }
 
-  .loondoku-side {
-    grid-template-columns: 1fr;
-  }
-
-  .loondoku-palette {
-    grid-row: auto;
-  }
-
   button.loondoku-cell {
     padding: 4%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.loondoku-cell.is-placed img,
+  button.loondoku-cell.is-cleared,
+  .loondoku-dialog[open] {
+    animation: none;
   }
 }
