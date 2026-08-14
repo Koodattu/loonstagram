@@ -53,7 +53,7 @@ func TestExtractDebugMediaCandidatesScansRawBodyURLs(t *testing.T) {
 	report := DebugReport{
 		Fetches: []DebugFetch{{
 			Name: "embed_page",
-			Body: `{"display_url":"https:\/\/scontent.cdninstagram.com\/v\/t51.82787-15\/full.jpg?stp=dst-jpg_e35_s1080x1080_tt6\u0026_nc_cat=111"}`,
+			Body: `{"display_url":"https:\/\/scontent-hel3-1.cdninstagram.com\/v\/t51.82787-15\/full.jpg?stp=dst-jpg_e35_s1080x1080_tt6\u0026_nc_cat=111"}`,
 		}},
 	}
 
@@ -61,7 +61,7 @@ func TestExtractDebugMediaCandidatesScansRawBodyURLs(t *testing.T) {
 	if len(candidates) != 1 {
 		t.Fatalf("candidate count = %d, want 1: %#v", len(candidates), candidates)
 	}
-	if candidates[0].URL != "https://scontent.cdninstagram.com/v/t51.82787-15/full.jpg?stp=dst-jpg_e35_s1080x1080_tt6&_nc_cat=111" {
+	if candidates[0].URL != "https://scontent-hel3-1.cdninstagram.com/v/t51.82787-15/full.jpg?stp=dst-jpg_e35_s1080x1080_tt6&_nc_cat=111" {
 		t.Fatalf("candidate URL = %q", candidates[0].URL)
 	}
 	if candidates[0].Source != "embed_page body" {

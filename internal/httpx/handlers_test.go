@@ -1288,3 +1288,22 @@ func TestShouldRefreshCachedPost(t *testing.T) {
 		})
 	}
 }
+
+func TestShouldRefreshGalleryPostRefreshesCroppedMedia(t *testing.T) {
+	post := &instagram.Post{
+		Status:   "ok",
+		Username: "loonletwow",
+		Media: []instagram.MediaItem{{
+			Kind: "image",
+			URL:  "https://scontent-hel3-1.cdninstagram.com/post.jpg?stp=c288.0.864.864a_dst-jpg_e35_s640x640_tt6",
+		}},
+	}
+	if !shouldRefreshGalleryPost(post) {
+		t.Fatal("cropped gallery media should be refreshed")
+	}
+
+	post.Media[0].URL = "https://scontent-hel3-1.cdninstagram.com/post.jpg?stp=dst-jpg_e35_s1080x1080_tt6"
+	if shouldRefreshGalleryPost(post) {
+		t.Fatal("complete uncropped gallery media should remain cached")
+	}
+}

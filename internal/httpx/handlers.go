@@ -404,7 +404,7 @@ func (h *Handlers) refreshGallery(w http.ResponseWriter, r *http.Request) {
 			h.logger.Warn("gallery refresh cache read failed", "shortcode", item.Ref.Shortcode, "error", sanitizeLogError(err))
 			failed++
 			continue
-		} else if ok && !shouldRefreshCachedPost(post) {
+		} else if ok && !shouldRefreshGalleryPost(post) {
 			continue
 		}
 
@@ -1383,6 +1383,21 @@ func shouldRefreshCachedPost(post *instagram.Post) bool {
 		return false
 	}
 	return len(post.Media) == 0 || post.Username == ""
+}
+
+func shouldRefreshGalleryPost(post *instagram.Post) bool {
+	if post == nil || post.Status != "ok" {
+		return false
+	}
+	if shouldRefreshCachedPost(post) {
+		return true
+	}
+	for _, item := range post.Media {
+		if instagram.LooksCroppedMediaURL(item.URL) || instagram.LooksCroppedMediaURL(item.PosterURL) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handlers) streamMedia(w http.ResponseWriter, r *http.Request, target, fallbackContentType string) {

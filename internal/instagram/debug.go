@@ -238,7 +238,7 @@ func appendDebugMediaCandidates(source string, value any, seen map[string]bool, 
 
 func appendDebugMediaCandidate(source, raw string, width, height int, seen map[string]bool, out *[]DebugMediaCandidate) {
 	raw = normalizeInstagramMediaURL(raw)
-	if !looksLikeImageURL(raw) || seen[raw] {
+	if !IsInstagramMediaURL(raw) || !looksLikeImageURL(raw) || seen[raw] {
 		return
 	}
 	seen[raw] = true

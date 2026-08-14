@@ -16,7 +16,7 @@ var (
 	attrPattern         = regexp.MustCompile(`(?is)([a-zA-Z_:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 	metaUsernamePattern = regexp.MustCompile(`(?:^|[\s(])@([A-Za-z0-9_.]+)`)
 	croppedStpPattern   = regexp.MustCompile(`(?:^|_)c\d+(?:\.\d+){3}a(?:_|$)`)
-	imageURLPattern     = regexp.MustCompile(`https?(?::|\\u003a)[/\\]+scontent\.cdninstagram\.com[^"'<>\s]+`)
+	imageURLPattern     = regexp.MustCompile(`https?(?::|\\u003a)[/\\]+(?:[^"'<>\s/\\]+\.)?(?:cdninstagram\.com|fbcdn\.net)[^"'<>\s]+`)
 	resizedStpPattern   = regexp.MustCompile(`(?:^|_)s(\d+)x(\d+)(?:_|$)`)
 )
 
@@ -431,7 +431,7 @@ func extractImageURLCandidates(body string) []imageVersionCandidate {
 	seen := make(map[string]bool)
 	for _, raw := range imageURLPattern.FindAllString(body, -1) {
 		url := normalizeInstagramMediaURL(raw)
-		if !looksLikeImageURL(url) || seen[url] {
+		if !IsInstagramMediaURL(url) || !looksLikeImageURL(url) || seen[url] {
 			continue
 		}
 		seen[url] = true
