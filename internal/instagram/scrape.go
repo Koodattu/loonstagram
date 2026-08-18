@@ -58,7 +58,7 @@ func NewClient(cfg ClientConfig) *Client {
 func (c *Client) FetchPost(ctx context.Context, ref Ref) (*Post, error) {
 	post, err := c.fetchPostPage(ctx, ref, ref.EmbedURL())
 	if err == nil {
-		if croppedMediaCount(post) > 0 {
+		if croppedMediaCount(post) > 0 || hasPosterOnlyVideo(post) {
 			if fallbackPost, fallbackErr := c.fetchPostPage(ctx, ref, ref.OriginalURL()); fallbackErr == nil && betterMediaPost(fallbackPost, post) {
 				return fallbackPost, nil
 			}
@@ -107,6 +107,18 @@ func playableVideoCount(post *Post) int {
 		}
 	}
 	return count
+}
+
+func hasPosterOnlyVideo(post *Post) bool {
+	if post == nil {
+		return false
+	}
+	for _, item := range post.Media {
+		if item.Kind == "video" && item.URL == "" && item.PosterURL != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func croppedMediaCount(post *Post) int {

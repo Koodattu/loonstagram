@@ -362,3 +362,69 @@ func TestParseEmbedHTMLExtractsInstagramAPIItemsCarousel(t *testing.T) {
 		t.Fatalf("Second media = %#v", post.Media[1])
 	}
 }
+
+func TestParseEmbedHTMLExtractsStandaloneInstagramAPIVideo(t *testing.T) {
+	ref := Ref{Type: TypeReel, Shortcode: "ABC123xyz"}
+	body := `
+<script>
+  window.__data = {"payload":{"media":{
+    "__isXIGPolarisMedia":"XIGPolarisVideoMedia",
+    "code":"ABC123xyz",
+    "user":{"username":"loonletwow"},
+    "caption":{"text":"Fresh reel"},
+    "media_type":2,
+    "image_versions2":{"candidates":[
+      {"url":"https://scontent.cdninstagram.com/poster.jpg","width":720,"height":1280}
+    ]},
+    "video_versions":[
+      {"url":"https://scontent.cdninstagram.com/video-low.mp4","width":360,"height":640},
+      {"url":"https://scontent.cdninstagram.com/video-high.mp4","width":720,"height":1280}
+    ]
+  }}};
+</script>`
+
+	post, err := ParseEmbedHTML(ref, body)
+	if err != nil {
+		t.Fatalf("ParseEmbedHTML() error = %v", err)
+	}
+	if post.Username != "loonletwow" || post.Caption != "Fresh reel" {
+		t.Fatalf("post identity = username %q, caption %q", post.Username, post.Caption)
+	}
+	if len(post.Media) != 1 ||
+		post.Media[0].Kind != "video" ||
+		post.Media[0].URL != "https://scontent.cdninstagram.com/video-high.mp4" ||
+		post.Media[0].PosterURL != "https://scontent.cdninstagram.com/poster.jpg" {
+		t.Fatalf("Media = %#v", post.Media)
+	}
+}
+
+func TestParseEmbedHTMLIgnoresStandaloneVideoForAnotherPost(t *testing.T) {
+	ref := Ref{Type: TypeReel, Shortcode: "ABC123xyz"}
+	body := `
+<meta property="og:url" content="https://www.instagram.com/reel/ABC123xyz/">
+<meta property="og:title" content="@loonletwow on Instagram">
+<meta property="og:image" content="https://scontent.cdninstagram.com/poster.jpg">
+<script>
+  window.__data = {"payload":{"media":{
+    "code":"DIFFERENT1",
+    "user":{"username":"someone_else"},
+    "media_type":2,
+    "image_versions2":{"candidates":[
+      {"url":"https://scontent.cdninstagram.com/other-poster.jpg","width":720,"height":1280}
+    ]},
+    "video_versions":[
+      {"url":"https://scontent.cdninstagram.com/other-video.mp4","width":720,"height":1280}
+    ]
+  }}};
+</script>`
+
+	post, err := ParseEmbedHTML(ref, body)
+	if err != nil {
+		t.Fatalf("ParseEmbedHTML() error = %v", err)
+	}
+	if len(post.Media) != 1 ||
+		post.Media[0].Kind != "image" ||
+		post.Media[0].URL != "https://scontent.cdninstagram.com/poster.jpg" {
+		t.Fatalf("Media = %#v", post.Media)
+	}
+}

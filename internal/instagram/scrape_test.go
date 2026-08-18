@@ -177,3 +177,59 @@ func TestFetchPostFallsBackToOriginalPageAfterCroppedEmbedMedia(t *testing.T) {
 		t.Fatalf("Media = %#v", post.Media)
 	}
 }
+
+func TestFetchPostFallsBackToOriginalPageForPosterOnlyVideo(t *testing.T) {
+	ref := Ref{Type: TypeReel, Shortcode: "ABC123xyz"}
+	client := NewClient(ClientConfig{Timeout: time.Second})
+	requests := 0
+	client.httpClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		body := `
+<script>
+  window.__data = {"shortcode_media":{
+    "shortcode":"ABC123xyz",
+    "owner":{"username":"loonletwow"},
+    "edge_media_to_caption":{"edges":[{"node":{"text":"Fresh reel"}}]},
+    "is_video":true,
+    "display_url":"https://scontent.cdninstagram.com/poster.jpg"
+  }};
+</script>`
+		if !strings.Contains(req.URL.Path, "/embed/") {
+			body = `
+<script>
+  window.__data = {"payload":{"media":{
+    "code":"ABC123xyz",
+    "user":{"username":"loonletwow"},
+    "caption":{"text":"Fresh reel"},
+    "media_type":2,
+    "image_versions2":{"candidates":[
+      {"url":"https://scontent.cdninstagram.com/poster.jpg","width":720,"height":1280}
+    ]},
+    "video_versions":[
+      {"url":"https://scontent.cdninstagram.com/video.mp4","width":720,"height":1280}
+    ]
+  }}};
+</script>`
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    req,
+		}, nil
+	})
+
+	post, err := client.FetchPost(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("FetchPost() error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
+	}
+	if len(post.Media) != 1 ||
+		post.Media[0].Kind != "video" ||
+		post.Media[0].URL != "https://scontent.cdninstagram.com/video.mp4" ||
+		post.Media[0].PosterURL != "https://scontent.cdninstagram.com/poster.jpg" {
+		t.Fatalf("Media = %#v", post.Media)
+	}
+}

@@ -80,6 +80,29 @@ func TestEmbedDataUsesUsernameCaptionThemeAndMultipleImages(t *testing.T) {
 	}
 }
 
+func TestEmbedDataUsesPlayableVideo(t *testing.T) {
+	h := &Handlers{publicBaseURL: "https://loonstagram.com"}
+	post := &instagram.Post{
+		Ref:      instagram.Ref{Type: instagram.TypeReel, Shortcode: "ABC123xyz"},
+		Username: "loonletwow",
+		Media: []instagram.MediaItem{{
+			Kind:        "video",
+			URL:         "https://scontent.cdninstagram.com/video.mp4",
+			PosterURL:   "https://scontent.cdninstagram.com/poster.jpg",
+			ContentType: "video/mp4",
+		}},
+		Status: "ok",
+	}
+
+	data := h.embedData(post)
+	if !data.HasVideo || data.VideoURL != "https://loonstagram.com/media/reel/ABC123xyz/1/video" || data.VideoType != "video/mp4" {
+		t.Fatalf("VideoURL = %q, VideoType = %q, HasVideo = %v", data.VideoURL, data.VideoType, data.HasVideo)
+	}
+	if !data.HasImage || data.ImageURL != "https://loonstagram.com/preview/reel/ABC123xyz/image" {
+		t.Fatalf("ImageURL = %q, HasImage = %v", data.ImageURL, data.HasImage)
+	}
+}
+
 func TestEmbedDataUsesFullCaption(t *testing.T) {
 	h := &Handlers{publicBaseURL: "https://loonstagram.com"}
 	longCaption := strings.Repeat("caption ", 80)
@@ -1270,6 +1293,19 @@ func TestShouldRefreshCachedPost(t *testing.T) {
 				Status:   "ok",
 				Username: "loonletwow",
 				Caption:  "caption",
+			},
+			want: true,
+		},
+		{
+			name: "ok reel with poster but no video URL",
+			post: &instagram.Post{
+				Status:   "ok",
+				Username: "loonletwow",
+				Caption:  "caption",
+				Media: []instagram.MediaItem{{
+					Kind:      "video",
+					PosterURL: "https://scontent.cdninstagram.com/poster.jpg",
+				}},
 			},
 			want: true,
 		},

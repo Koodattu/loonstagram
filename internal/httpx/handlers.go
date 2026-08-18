@@ -1382,7 +1382,15 @@ func shouldRefreshCachedPost(post *instagram.Post) bool {
 	if post == nil || post.Status != "ok" {
 		return false
 	}
-	return len(post.Media) == 0 || post.Username == ""
+	if len(post.Media) == 0 || post.Username == "" {
+		return true
+	}
+	for _, item := range post.Media {
+		if item.Kind == "video" && item.URL == "" {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldRefreshGalleryPost(post *instagram.Post) bool {

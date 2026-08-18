@@ -134,6 +134,63 @@ func applyInstagramAPIFallback(post *Post, body string, ref Ref) {
 			return
 		}
 	}
+
+	applyStandaloneInstagramAPIFallback(post, body, ref)
+}
+
+func applyStandaloneInstagramAPIFallback(post *Post, body string, ref Ref) {
+	const key = "video_versions"
+	needle := `"` + key + `"`
+	searchStart := 0
+	for matches := 0; searchStart < len(body) && matches < 24; matches++ {
+		relativeIndex := strings.Index(body[searchStart:], needle)
+		if relativeIndex < 0 {
+			return
+		}
+		keyIndex := searchStart + relativeIndex
+		node, ok := enclosingInstagramAPIItem(body, keyIndex, key, ref)
+		if ok {
+			candidate := &Post{
+				Ref:         ref,
+				OriginalURL: ref.OriginalURL(),
+				Media:       make([]MediaItem, 0, 1),
+			}
+			applyInstagramAPIItem(candidate, node)
+			if post.Username == "" {
+				post.Username = candidate.Username
+			}
+			if post.Caption == "" {
+				post.Caption = candidate.Caption
+			}
+			if betterMediaPost(candidate, post) {
+				post.Media = candidate.Media
+			}
+			return
+		}
+		searchStart = keyIndex + len(needle)
+	}
+}
+
+func enclosingInstagramAPIItem(input string, keyIndex int, key string, ref Ref) (map[string]any, bool) {
+	for start := keyIndex - 1; start >= 0; start-- {
+		if input[start] != '{' {
+			continue
+		}
+		end := matchingJSONEnd(input, start)
+		if end < keyIndex {
+			continue
+		}
+
+		var node map[string]any
+		if err := unmarshalJSONValue(input[start:end+1], &node); err != nil {
+			continue
+		}
+		if _, ok := node[key]; !ok || !nodeMatchesRef(node, ref, false) || !looksLikeInstagramAPIItem(node) {
+			continue
+		}
+		return node, true
+	}
+	return nil, false
 }
 
 func nodeMatchesRef(node map[string]any, ref Ref, allowMissing bool) bool {
