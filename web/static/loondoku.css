@@ -61,6 +61,10 @@
   min-width: 0;
 }
 
+.loondoku-board-stage {
+  position: relative;
+}
+
 .loondoku-board {
   display: grid;
   grid-template-columns: repeat(9, minmax(0, 1fr));
@@ -161,6 +165,74 @@ button.loondoku-cell:focus-visible {
   box-shadow: 0 0 0 5px oklch(0.76 0.13 155 / 0.16), 0 18px 42px oklch(0 0 0 / 0.36);
 }
 
+.loondoku-board.is-complete .loondoku-cell {
+  cursor: default;
+}
+
+.loondoku-completion[hidden] {
+  display: none;
+}
+
+.loondoku-completion {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid var(--success);
+  border-radius: 12px;
+  background: oklch(0.22 0.035 155);
+  animation: loondoku-place 260ms ease-out;
+}
+
+.loondoku-completion:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.loondoku-completion-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: var(--bg);
+  background: var(--success);
+  font-size: 1.4rem;
+  font-weight: 800;
+}
+
+.loondoku-completion h2 {
+  margin: 0;
+  color: var(--success);
+  font-size: 1.2rem;
+}
+
+.loondoku-completion p {
+  margin: 5px 0 0;
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.loondoku-fireworks {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+.loondoku-spark {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+  animation: loondoku-firework 1.4s ease-out both;
+}
+
 .loondoku-side {
   display: grid;
   gap: 14px;
@@ -204,6 +276,10 @@ button.loondoku-choice:hover {
 button.loondoku-choice[aria-pressed="true"] {
   background: oklch(0.32 0.07 348);
   box-shadow: inset 0 0 0 2px var(--pink);
+}
+
+button.loondoku-choice:disabled {
+  opacity: 0.5;
 }
 
 .loondoku-choice img {
@@ -332,6 +408,23 @@ button.loondoku-choice[aria-pressed="true"] {
   }
 }
 
+@keyframes loondoku-firework {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.3);
+  }
+  12% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--spark-x), var(--spark-y)) scale(0);
+  }
+}
+
 @media (max-width: 760px) {
   .loondoku-shell {
     width: min(100% - 20px, 560px);
@@ -364,12 +457,26 @@ button.loondoku-choice[aria-pressed="true"] {
   button.loondoku-cell {
     padding: 4%;
   }
+
+  .loondoku-completion {
+    grid-template-columns: auto 1fr;
+  }
+
+  .loondoku-completion button {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   button.loondoku-cell.is-placed img,
   button.loondoku-cell.is-cleared,
+  .loondoku-completion,
+  .loondoku-spark,
   .loondoku-dialog[open] {
     animation: none;
+  }
+
+  .loondoku-fireworks {
+    display: none;
   }
 }

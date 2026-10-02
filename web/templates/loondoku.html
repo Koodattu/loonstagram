@@ -6,7 +6,7 @@
     <meta name="robots" content="noindex">
     <title>Loondoku</title>
     <link rel="stylesheet" href="/static/app.css">
-    <link rel="stylesheet" href="/static/loondoku.css?v=20260814-2">
+    <link rel="stylesheet" href="/static/loondoku.css?v=20261002-1">
   </head>
   <body class="page-loondoku">
     <main class="loondoku-shell">
@@ -20,7 +20,18 @@
 
       <section class="loondoku-game" aria-label="Loondoku puzzle">
         <div class="loondoku-board-panel">
-          <div id="loondoku-board" class="loondoku-board" role="grid" aria-label="9 by 9 Loondoku board"></div>
+          <div class="loondoku-board-stage">
+            <div id="loondoku-board" class="loondoku-board" role="grid" aria-label="9 by 9 Loondoku board"></div>
+            <div id="loondoku-fireworks" class="loondoku-fireworks" aria-hidden="true"></div>
+          </div>
+          <section id="loondoku-completion" class="loondoku-completion" aria-labelledby="loondoku-completion-title" tabindex="-1" hidden>
+            <span class="loondoku-completion-icon" aria-hidden="true">✓</span>
+            <div>
+              <h2 id="loondoku-completion-title">Puzzle complete!</h2>
+              <p>Every Pepe is in the right place. Nise.</p>
+            </div>
+            <button id="loondoku-play-again" type="button">Play again</button>
+          </section>
           <noscript>Loondoku needs JavaScript enabled to play.</noscript>
         </div>
 
@@ -38,7 +49,10 @@
           <div class="loondoku-actions">
             <button id="loondoku-check" type="button">Check</button>
             <button id="loondoku-reset" class="secondary" type="button">Reset</button>
+            <button id="loondoku-new" class="secondary" type="button">New puzzle</button>
+            <button id="loondoku-sound" class="secondary" type="button" aria-label="Sound effects" aria-pressed="true">Sound on</button>
           </div>
+          <p class="loondoku-help">A fresh puzzle on every refresh. Reset keeps this puzzle.</p>
           <p class="loondoku-credit">Pink-ribbon Pepes from <a href="https://www.twitch.tv/loonlet" target="_blank" rel="noopener">Loonlet's</a> 7TV set.</p>
         </aside>
       </section>
@@ -50,11 +64,11 @@
         <p id="loondoku-reset-copy">Your entries will be cleared.</p>
         <div class="loondoku-dialog-actions">
           <button class="secondary" type="submit" value="cancel" autofocus>Keep playing</button>
-          <button type="submit" value="reset">Reset puzzle</button>
+          <button id="loondoku-reset-confirm" type="submit" value="reset">Reset puzzle</button>
         </div>
       </form>
     </dialog>
 
-    <script src="/static/loondoku.js?v=20260814-2" defer></script>
+    <script src="/static/loondoku.js?v=20261002-1" defer></script>
   </body>
 </html>

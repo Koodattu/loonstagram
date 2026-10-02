@@ -116,6 +116,21 @@ curl -X POST http://localhost:8080/api/convert \
 curl -A "Discordbot/2.0" "http://localhost:8080/reel/ABC123xyz?preview=1"
 ```
 
+## Loondoku
+
+`/loondoku` starts a randomized variation of the puzzle on each visit or refresh.
+New puzzle reshuffles the board; Reset clears entries while keeping the current
+puzzle. Every variation preserves the original difficulty and unique solution.
+Completing the board shows a persistent success banner, fireworks, and a victory
+chime. Sound can be toggled and the preference is saved locally; fireworks respect
+the browser's reduced-motion setting.
+
+Run the dependency-free puzzle and gameplay regression tests with Node.js:
+
+```sh
+node --test web/loondoku.test.cjs
+```
+
 ## Instagram to Discord Automation
 
 Set `ADMIN_TOKEN` before exposing automation settings. The public converter stays open, but automation API writes require the admin token through the web UI.
