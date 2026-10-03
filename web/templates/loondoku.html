@@ -6,7 +6,7 @@
     <meta name="robots" content="noindex">
     <title>Loondoku</title>
     <link rel="stylesheet" href="/static/app.css">
-    <link rel="stylesheet" href="/static/loondoku.css?v=20261002-1">
+    <link rel="stylesheet" href="/static/loondoku.css?v=20261003-1">
   </head>
   <body class="page-loondoku">
     <main class="loondoku-shell">
@@ -14,7 +14,7 @@
         <a class="wordmark loondoku-wordmark" href="/" aria-label="Loonstagram home">Loonstagram</a>
         <div>
           <h1>Loondoku</h1>
-          <p>Fill every row, column, and 3 × 3 box with each pink-ribbon Pepe once.</p>
+          <p id="loondoku-instructions">Fill every row, column, and 3 × 3 box with each pink-ribbon Pepe once.</p>
         </div>
       </header>
 
@@ -28,7 +28,7 @@
             <span class="loondoku-completion-icon" aria-hidden="true">✓</span>
             <div>
               <h2 id="loondoku-completion-title">Puzzle complete!</h2>
-              <p>Every Pepe is in the right place. Nise.</p>
+              <p>Every square is correct. Nise.</p>
             </div>
             <button id="loondoku-play-again" type="button">Play again</button>
           </section>
@@ -36,9 +36,13 @@
         </div>
 
         <aside class="loondoku-side" aria-label="Game controls">
+          <div class="loondoku-display" role="group" aria-label="Puzzle display">
+            <button id="loondoku-emotes" class="secondary" type="button" aria-pressed="true">Emotes</button>
+            <button id="loondoku-numbers" class="secondary" type="button" aria-pressed="false">Numbers</button>
+          </div>
           <div>
-            <h2>Pick a Pepe</h2>
-            <p class="loondoku-help">Select a square, then click a Pepe or press its number.</p>
+            <h2 id="loondoku-palette-title">Pick a Pepe</h2>
+            <p id="loondoku-palette-help" class="loondoku-help">Select a square, then click a Pepe or press its number.</p>
           </div>
           <div id="loondoku-palette" class="loondoku-palette" aria-label="Pepe choices"></div>
           <button id="loondoku-empty" class="secondary loondoku-empty" type="button">
@@ -69,6 +73,6 @@
       </form>
     </dialog>
 
-    <script src="/static/loondoku.js?v=20261002-1" defer></script>
+    <script src="/static/loondoku.js?v=20261003-1" defer></script>
   </body>
 </html>

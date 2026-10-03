@@ -123,7 +123,9 @@ New puzzle reshuffles the board; Reset clears entries while keeping the current
 puzzle. Every variation preserves the original difficulty and unique solution.
 Completing the board shows a persistent success banner, fireworks, and a victory
 chime. Sound can be toggled and the preference is saved locally; fireworks respect
-the browser's reduced-motion setting.
+the browser's reduced-motion setting. Switch between Emotes and Numbers at any
+time without changing the puzzle, entries, or selection. The display preference
+is saved locally too.
 
 Run the dependency-free puzzle and gameplay regression tests with Node.js:
 

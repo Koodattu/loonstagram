@@ -72,10 +72,16 @@ const fireworks = document.querySelector("#loondoku-fireworks");
 const dialogTitle = document.querySelector("#loondoku-reset-title");
 const dialogCopy = document.querySelector("#loondoku-reset-copy");
 const dialogConfirm = document.querySelector("#loondoku-reset-confirm");
+const emotesButton = document.querySelector("#loondoku-emotes");
+const numbersButton = document.querySelector("#loondoku-numbers");
+const instructions = document.querySelector("#loondoku-instructions");
+const paletteTitle = document.querySelector("#loondoku-palette-title");
+const paletteHelp = document.querySelector("#loondoku-palette-help");
 
 if (board && palette && status && checkButton && emptyButton && resetButton && resetDialog
   && newButton && soundButton && completion && playAgainButton && fireworks
-  && dialogTitle && dialogCopy && dialogConfirm) {
+  && dialogTitle && dialogCopy && dialogConfirm
+  && emotesButton && numbersButton && instructions && paletteTitle && paletteHelp) {
   const cells = [];
   const choices = [];
   let game = createLoondokuPuzzle();
@@ -88,15 +94,18 @@ if (board && palette && status && checkButton && emptyButton && resetButton && r
   let fireworksTimeout;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const soundStorageKey = "loondoku-sound";
+  const displayStorageKey = "loondoku-display";
   let soundEnabled = true;
+  let showNumbers = false;
   let audioContext;
   let soundGeneration = 0;
   const activeSounds = new Set();
 
   try {
     soundEnabled = window.localStorage.getItem(soundStorageKey) !== "off";
+    showNumbers = window.localStorage.getItem(displayStorageKey) === "numbers";
   } catch {
-    // Sound still works for this visit when browser storage is unavailable.
+    // Preferences still work for this visit when browser storage is unavailable.
   }
 
   function renderSoundButton() {
@@ -185,7 +194,14 @@ if (board && palette && status && checkButton && emptyButton && resetButton && r
     if (reducedMotion.matches) clearFireworks();
   });
 
-  function emoteImage(value) {
+  function symbolElement(value) {
+    if (showNumbers) {
+      const number = document.createElement("span");
+      number.className = "loondoku-number";
+      number.textContent = String(value);
+      number.setAttribute("aria-hidden", "true");
+      return number;
+    }
     const emote = LOONDOKU_EMOTES[value - 1];
     const image = document.createElement("img");
     image.src = emote.src;
@@ -207,7 +223,8 @@ if (board && palette && status && checkButton && emptyButton && resetButton && r
       return `Row ${row}, column ${column}, empty`;
     }
     const fixed = game.puzzle[index] !== 0 ? ", fixed" : "";
-    return `Row ${row}, column ${column}, ${LOONDOKU_EMOTES[value - 1].name}${fixed}`;
+    const label = showNumbers ? value : LOONDOKU_EMOTES[value - 1].name;
+    return `Row ${row}, column ${column}, ${label}${fixed}`;
   }
 
   function conflictIndexes() {
@@ -252,11 +269,21 @@ if (board && palette && status && checkButton && emptyButton && resetButton && r
   function render() {
     const conflicts = conflictIndexes();
     const selectedValue = values[selectedIndex];
+    emotesButton.setAttribute("aria-pressed", String(!showNumbers));
+    numbersButton.setAttribute("aria-pressed", String(showNumbers));
+    instructions.textContent = showNumbers
+      ? "Fill every row, column, and 3 × 3 box with the numbers 1–9 once."
+      : "Fill every row, column, and 3 × 3 box with each pink-ribbon Pepe once.";
+    paletteTitle.textContent = showNumbers ? "Pick a number" : "Pick a Pepe";
+    paletteHelp.textContent = showNumbers
+      ? "Select a square, then click a number or press its key."
+      : "Select a square, then click a Pepe or press its number.";
+    palette.setAttribute("aria-label", showNumbers ? "Number choices" : "Pepe choices");
 
     cells.forEach((cell, index) => {
       const value = values[index];
       cell.replaceChildren();
-      if (value) cell.append(emoteImage(value));
+      if (value) cell.append(symbolElement(value));
       cell.classList.toggle("is-given", game.puzzle[index] !== 0);
       cell.classList.toggle("is-selected", !isComplete && index === selectedIndex);
       cell.classList.toggle("is-matching", !isComplete && Boolean(selectedValue) && value === selectedValue && index !== selectedIndex);
@@ -268,6 +295,19 @@ if (board && palette && status && checkButton && emptyButton && resetButton && r
     });
 
     choices.forEach((choice, index) => {
+      const value = index + 1;
+      const label = showNumbers ? String(value) : LOONDOKU_EMOTES[index].name;
+      choice.replaceChildren();
+      choice.append(symbolElement(value));
+      if (!showNumbers) {
+        const key = document.createElement("span");
+        key.className = "loondoku-key";
+        key.textContent = String(value);
+        key.setAttribute("aria-hidden", "true");
+        choice.append(key);
+      }
+      choice.title = label;
+      choice.setAttribute("aria-label", `Place ${label}, key ${value}`);
       choice.setAttribute("aria-pressed", selectedValue === index + 1 ? "true" : "false");
       choice.disabled = isComplete;
     });
@@ -282,7 +322,7 @@ if (board && palette && status && checkButton && emptyButton && resetButton && r
 
     board.classList.toggle("is-complete", solved);
     if (solved) {
-      setStatus("Solved! Every Pepe found its place.", "success");
+      setStatus("Solved! Every square is correct.", "success");
       if (!isComplete) {
         isComplete = true;
         completion.hidden = false;
@@ -291,7 +331,7 @@ if (board && palette && status && checkButton && emptyButton && resetButton && r
         celebrate();
       }
     } else if (conflicts.size > 0) {
-      setStatus("That Pepe is repeated in a row, column, or box.", "error");
+      setStatus("That value is repeated in a row, column, or box.", "error");
     } else if (remaining === 1) {
       setStatus("1 square left.");
     } else {
@@ -351,19 +391,10 @@ if (board && palette && status && checkButton && emptyButton && resetButton && r
     cells.push(cell);
   });
 
-  LOONDOKU_EMOTES.forEach((emote, index) => {
+  LOONDOKU_EMOTES.forEach((_, index) => {
     const choice = document.createElement("button");
     choice.type = "button";
     choice.className = "loondoku-choice";
-    choice.title = emote.name;
-    choice.setAttribute("aria-label", `Place ${emote.name}, key ${index + 1}`);
-    choice.setAttribute("aria-pressed", "false");
-    choice.append(emoteImage(index + 1));
-    const key = document.createElement("span");
-    key.className = "loondoku-key";
-    key.textContent = String(index + 1);
-    key.setAttribute("aria-hidden", "true");
-    choice.append(key);
     choice.addEventListener("click", () => placeValue(index + 1));
     palette.append(choice);
     choices.push(choice);
@@ -376,7 +407,7 @@ if (board && palette && status && checkButton && emptyButton && resetButton && r
     const remaining = values.filter((value) => value === 0).length;
     const wrong = values.filter((value, index) => value !== 0 && value !== game.solution[index]).length;
     if (wrong > 0) {
-      setStatus(`${wrong} ${wrong === 1 ? "Pepe is" : "Pepes are"} out of place.`, "error");
+      setStatus(`${wrong} ${wrong === 1 ? "entry is" : "entries are"} out of place.`, "error");
       playSound("error");
     } else if (remaining > 0) {
       setStatus(`Looking good. ${remaining} ${remaining === 1 ? "square" : "squares"} left.`);
@@ -455,6 +486,20 @@ if (board && palette && status && checkButton && emptyButton && resetButton && r
     }
     if (soundEnabled) playSound("check");
   });
+
+  function setDisplay(numbers) {
+    if (showNumbers === numbers) return;
+    showNumbers = numbers;
+    render();
+    try {
+      window.localStorage.setItem(displayStorageKey, showNumbers ? "numbers" : "emotes");
+    } catch {
+      // Changing the display must not depend on browser storage.
+    }
+  }
+
+  emotesButton.addEventListener("click", () => setDisplay(false));
+  numbersButton.addEventListener("click", () => setDisplay(true));
 
   renderSoundButton();
   render();

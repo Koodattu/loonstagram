@@ -140,7 +140,11 @@ function startGame({ storage = new Map(), reducedMotion = false, audio = true, a
   vm.runInContext(source, context);
   const emotes = vm.runInContext("LOONDOKU_EMOTES.map((emote) => emote.src)", context);
   const cells = get("board").children;
-  const values = () => cells.map((cell) => cell.children.length ? emotes.indexOf(cell.children[0].src) + 1 : 0);
+  const values = () => cells.map((cell) => {
+    const symbol = cell.children[0];
+    if (!symbol) return 0;
+    return symbol.src ? emotes.indexOf(symbol.src) + 1 : Number(symbol.textContent);
+  });
   const initial = values();
   const [solution] = solutionsFor(initial);
   function key(key) {
@@ -297,6 +301,95 @@ test("muting while audio resumes cancels the pending sound", async () => {
   assert.equal(game.notes.length, 0);
 });
 
+test("switching symbols preserves entries, selection, conflicts, and checked mistakes", () => {
+  const game = startGame();
+  assert.equal(game.get("emotes").getAttribute("aria-pressed"), "true");
+  const blanks = game.initial.map((value, index) => value ? -1 : index).filter((index) => index >= 0);
+  game.place(blanks[0], game.solution[blanks[0]]);
+  game.place(blanks[1], game.solution[blanks[1]] % 9 + 1);
+  game.get("check").click();
+  const snapshot = () => ({
+    values: game.values(),
+    cells: game.cells.map((cell) => ({
+      classes: ["is-given", "is-selected", "is-matching", "is-conflict", "is-wrong"]
+        .map((name) => cell.classList.contains(name)),
+      tabIndex: cell.tabIndex,
+      readonly: cell.getAttribute("aria-readonly"),
+    })),
+    message: game.get("status").textContent,
+    kind: game.get("status").dataset.kind,
+    sounds: game.notes.length,
+    timers: game.timers.size,
+  });
+  const before = snapshot();
+
+  game.get("numbers").click();
+  assert.deepEqual(snapshot(), before);
+  assert.equal(game.get("numbers").getAttribute("aria-pressed"), "true");
+  assert.equal(game.get("emotes").getAttribute("aria-pressed"), "false");
+  assert.equal(game.get("palette-title").textContent, "Pick a number");
+  assert.equal(game.get("palette").getAttribute("aria-label"), "Number choices");
+  assert.ok(game.cells.every((cell) => !cell.children.length || cell.children[0].className === "loondoku-number"));
+  game.get("palette").children.forEach((choice, index) => {
+    assert.equal(choice.children.length, 1);
+    assert.equal(choice.children[0].textContent, String(index + 1));
+    assert.equal(choice.getAttribute("aria-label"), `Place ${index + 1}, key ${index + 1}`);
+  });
+  assert.ok(game.cells[blanks[0]].getAttribute("aria-label").endsWith(`, ${game.solution[blanks[0]]}`));
+
+  game.get("emotes").click();
+  assert.deepEqual(snapshot(), before);
+  assert.equal(game.get("palette-title").textContent, "Pick a Pepe");
+  assert.ok(game.cells.every((cell) => !cell.children.length || cell.children[0].src));
+  assert.ok(game.get("palette").children.every((choice) => choice.children.length === 2));
+
+  game.get("numbers").click();
+  game.key("0");
+  assert.equal(game.values()[blanks[1]], 0, "keyboard clearing still uses the selected square");
+  game.get("palette").children[game.solution[blanks[1]] - 1].click();
+  assert.equal(game.values()[blanks[1]], game.solution[blanks[1]], "number choices still place values");
+  game.get("emotes").click();
+  assert.equal(game.values()[blanks[1]], game.solution[blanks[1]]);
+});
+
+test("numbers mode can finish a puzzle and changing symbols preserves completion", () => {
+  const game = startGame();
+  const first = game.initial.indexOf(0);
+  game.place(first, game.solution[first]);
+  game.get("numbers").click();
+  game.solve();
+  const notes = game.notes.length;
+  const fireworks = game.get("fireworks").children.slice();
+  for (const mode of ["emotes", "numbers"]) {
+    game.get(mode).click();
+    assert.deepEqual(game.values(), game.solution);
+    assert.equal(game.get("completion").hidden, false);
+    assert.equal(game.get("status").dataset.kind, "success");
+    assert.equal(game.get("board").classList.contains("is-complete"), true);
+    assert.ok(game.get("palette").children.every((choice) => choice.disabled));
+    assert.equal(game.notes.length, notes, "changing symbols does not replay the victory sound");
+    assert.deepEqual(game.get("fireworks").children, fireworks);
+  }
+  game.get("reset").click();
+  assert.deepEqual(game.values(), game.initial);
+  assert.equal(game.get("completion").hidden, true);
+  assert.equal(game.get("numbers").getAttribute("aria-pressed"), "true");
+});
+
+test("the display preference survives new puzzles and visits", () => {
+  const storage = new Map();
+  const game = startGame({ storage });
+  game.get("numbers").click();
+  game.get("new").click();
+  assert.equal(game.get("numbers").getAttribute("aria-pressed"), "true");
+  assert.equal(storage.get("loondoku-display"), "numbers");
+  const next = startGame({ storage });
+  assert.equal(next.get("numbers").getAttribute("aria-pressed"), "true");
+  assert.ok(next.cells.every((cell) => !cell.children.length || cell.children[0].className === "loondoku-number"));
+  next.get("emotes").click();
+  assert.equal(startGame({ storage }).get("emotes").getAttribute("aria-pressed"), "true");
+});
+
 test("reduced motion skips fireworks but still confirms success", () => {
   const game = startGame({ reducedMotion: true });
   game.solve();
@@ -320,6 +413,8 @@ test("blocked storage and missing audio support do not prevent play or completio
   const game = startGame({ storage, audio: false });
   game.get("sound").click();
   game.get("sound").click();
+  game.get("numbers").click();
+  assert.equal(game.get("numbers").getAttribute("aria-pressed"), "true");
   game.solve();
   assert.equal(game.get("completion").hidden, false);
   assert.equal(game.get("status").dataset.kind, "success");
