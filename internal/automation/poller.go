@@ -266,10 +266,10 @@ func (p *Poller) check(ctx context.Context) error {
 }
 
 func profileFetchCoolingDown(settings cache.AutomationSettings, now time.Time) (time.Time, bool) {
-	if settings.LastCheckedAt.IsZero() || settings.LastError != "instagram profile fetch blocked" {
+	if settings.LastCheckedAt.IsZero() || !instagram.IsProfileBlockedMessage(settings.LastError) {
 		return time.Time{}, false
 	}
-	nextAt := settings.LastCheckedAt.Add(pollIntervalDuration(settings.PollIntervalMinutes, defaultPollInterval))
+	nextAt := settings.LastCheckedAt.Add(instagram.ProfileBlockCooldown(pollIntervalDuration(settings.PollIntervalMinutes, defaultPollInterval)))
 	if now.Before(nextAt) {
 		return nextAt, true
 	}

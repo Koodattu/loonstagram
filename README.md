@@ -143,7 +143,20 @@ Discord can be connected in two ways:
 - Paste a Discord webhook URL in the admin panel.
 - Configure `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`, then use the Connect Discord button. The Discord app redirect URL must match `DISCORD_REDIRECT_URL` or `{PUBLIC_BASE_URL}/oauth/discord/callback`.
 
-Instagram polling watches a public username through Instagram's web profile endpoint. The first successful poll fetches and caches the current recent posts for the gallery without posting them to Discord. Later unseen shortcodes are cached too; they are delivered only when Discord is already connected. The admin panel controls the profile check interval in minutes. If Instagram blocks the no-login profile endpoint, manual gallery refreshes and scheduled checks cool down for that interval before retrying. Self-hosted deployments can optionally provide `INSTAGRAM_SESSION_ID`; treat that as a sensitive credential.
+Instagram polling watches a public username through Instagram's web profile endpoint. The first successful poll fetches and caches the current recent posts for the gallery without posting them to Discord. Later unseen shortcodes are cached too; they are delivered only when Discord is already connected. The admin panel controls the profile check interval in minutes. If Instagram blocks the profile endpoint, manual gallery refreshes and scheduled checks cool down for at least two hours, or the configured interval if longer, before retrying. Other failures retain the normal polling interval. Self-hosted deployments can optionally provide `INSTAGRAM_SESSION_ID`; treat that as a sensitive credential.
+
+Profile failures retain a safe diagnostic reason: HTTP 401 (unauthorized), 403
+(forbidden), 429 (rate limited), a redirect status, or an explicit login/challenge
+requirement. Redirects are not followed. Unknown or malformed responses remain
+failures; upstream bodies and messages are not included in these diagnostics.
+The block cooldown applies to both old and detailed block errors,
+including after a restart. These diagnostics do not remove upstream restrictions.
+
+To verify recovery, look for `automation profile fetch complete` in application
+logs after a scheduled check. A healthy website, `last_checked_at`, and a running
+container do not establish successful retrieval. The database does not retain a
+separate last successful profile-fetch timestamp; seen-media timestamps only
+establish when new media was recorded, not the most recent successful poll.
 
 ## Debug URLs
 

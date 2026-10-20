@@ -852,6 +852,20 @@ func TestRefreshGalleryRefreshesExpiredRecentPosts(t *testing.T) {
 	}
 }
 
+func TestProfileRefreshCooldownWaitsTwoHours(t *testing.T) {
+	now := time.Now()
+	for _, message := range []string{"instagram profile fetch blocked", "instagram profile fetch blocked: HTTP 429 rate limited"} {
+		settings := cache.AutomationSettings{LastCheckedAt: now, LastError: message, PollIntervalMinutes: 30}
+		next, cooling := profileRefreshCoolingDown(settings, now.Add(119*time.Minute))
+		if !cooling || !next.Equal(now.Add(2*time.Hour)) {
+			t.Fatalf("cooldown for %q = %v, %v", message, next, cooling)
+		}
+		if _, cooling := profileRefreshCoolingDown(settings, now.Add(2*time.Hour)); cooling {
+			t.Fatal("manual cooldown did not expire")
+		}
+	}
+}
+
 func TestRefreshGalleryCooldownAfterBlockedProfileFetch(t *testing.T) {
 	ctx := context.Background()
 	store, err := cache.Open(ctx, ":memory:")
@@ -864,7 +878,7 @@ func TestRefreshGalleryCooldownAfterBlockedProfileFetch(t *testing.T) {
 		t.Fatalf("SaveAutomationConfig() error = %v", err)
 	}
 	profiles := &fakeProfileFetcher{
-		err: instagram.ProfileFetchError{Kind: instagram.FetchErrorBlocked, Message: "instagram profile fetch blocked"},
+		err: instagram.ProfileFetchError{Kind: instagram.FetchErrorBlocked, Message: "instagram profile fetch blocked: HTTP 429 rate limited"},
 	}
 	h, err := NewHandlers(Options{
 		PublicBaseURL:    "https://loonstagram.com",

@@ -16,6 +16,23 @@ const defaultInstagramWebAppID = "936619743392459"
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._]{1,30}$`)
 
+const profileBlockedMessage = "instagram profile fetch blocked"
+
+// ProfileBlockCooldown reduces requests after upstream access restrictions,
+// without shortening a user's longer polling interval.
+func ProfileBlockCooldown(interval time.Duration) time.Duration {
+	return max(interval, 2*time.Hour)
+}
+
+// IsProfileBlockedMessage also accepts persisted errors from older releases.
+func IsProfileBlockedMessage(message string) bool {
+	return message == profileBlockedMessage || strings.HasPrefix(message, profileBlockedMessage+": ")
+}
+
+func profileBlocked(reason string) error {
+	return ProfileFetchError{Kind: FetchErrorBlocked, Message: profileBlockedMessage + ": " + reason}
+}
+
 type ProfileFetchError struct {
 	Kind    string
 	Message string
@@ -66,6 +83,11 @@ func NewProfileClient(cfg ProfileClientConfig) *ProfileClient {
 	return &ProfileClient{
 		httpClient: &http.Client{
 			Timeout: timeout,
+			// A profile API redirect is not a profile response. Do not follow it
+			// to a login/challenge page (or forward the session cookie).
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 		},
 		maxBodyBytes: maxBodyBytes,
 		appID:        appID,
@@ -118,8 +140,15 @@ func (c *ProfileClient) FetchRecentMedia(ctx context.Context, username string, l
 	switch resp.StatusCode {
 	case http.StatusNotFound:
 		return nil, ProfileFetchError{Kind: FetchErrorNotFound, Message: "instagram profile not found"}
-	case http.StatusTooManyRequests, http.StatusForbidden, http.StatusUnauthorized:
-		return nil, ProfileFetchError{Kind: FetchErrorBlocked, Message: "instagram profile fetch blocked"}
+	case http.StatusUnauthorized:
+		return nil, profileBlocked("HTTP 401 unauthorized")
+	case http.StatusForbidden:
+		return nil, profileBlocked("HTTP 403 forbidden")
+	case http.StatusTooManyRequests:
+		return nil, profileBlocked("HTTP 429 rate limited")
+	}
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return nil, profileBlocked(fmt.Sprintf("HTTP %d redirect", resp.StatusCode))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, ProfileFetchError{Kind: FetchErrorNetwork, Message: fmt.Sprintf("instagram returned status %d", resp.StatusCode)}
@@ -130,9 +159,31 @@ func (c *ProfileClient) FetchRecentMedia(ctx context.Context, username string, l
 		return nil, ProfileFetchError{Kind: FetchErrorNetwork, Message: err.Error()}
 	}
 
+	// Only emit fixed classifications, never an upstream message or body:
+	// those may contain account information or challenge/session URLs.
+	var envelope struct {
+		Status            string `json:"status"`
+		Message           string `json:"message"`
+		LoginRequired     bool   `json:"login_required"`
+		CheckpointURL     string `json:"checkpoint_url"`
+		ChallengeRequired bool   `json:"challenge_required"`
+	}
+	if json.Unmarshal(body, &envelope) == nil {
+		switch {
+		case envelope.LoginRequired || envelope.Message == "login_required":
+			return nil, profileBlocked("login required")
+		case envelope.CheckpointURL != "" || envelope.ChallengeRequired ||
+			envelope.Message == "challenge_required" || envelope.Message == "checkpoint_required":
+			return nil, profileBlocked("challenge required")
+		}
+		if envelope.Status == "fail" {
+			return nil, ProfileFetchError{Kind: FetchErrorParse, Message: "instagram profile response reported failure"}
+		}
+	}
+
 	media, err := ParseProfileMediaJSON(username, body, limit)
 	if err != nil {
-		return nil, ProfileFetchError{Kind: FetchErrorParse, Message: err.Error()}
+		return nil, ProfileFetchError{Kind: FetchErrorParse, Message: "instagram profile response could not be parsed"}
 	}
 	return media, nil
 }

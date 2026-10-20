@@ -11,6 +11,7 @@ import (
 
 type fakeProfileFetcher struct {
 	media []instagram.RecentMedia
+	err   error
 	limit int
 	calls int
 }
@@ -18,7 +19,72 @@ type fakeProfileFetcher struct {
 func (f *fakeProfileFetcher) FetchRecentMedia(ctx context.Context, username string, limit int) ([]instagram.RecentMedia, error) {
 	f.calls++
 	f.limit = limit
-	return f.media, nil
+	return f.media, f.err
+}
+
+func TestProfileFailurePreservesDataAndCoolsDown(t *testing.T) {
+	ctx := context.Background()
+	store, err := cache.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now()
+	if err := store.SaveAutomationConfig(ctx, "loonletwow", true, 30, now); err != nil {
+		t.Fatal(err)
+	}
+	profiles := &fakeProfileFetcher{media: []instagram.RecentMedia{recentMedia(instagram.TypePost, "ABC123xyz")}}
+	posts := &fakePostFetcher{}
+	sender := &fakeDiscordSender{}
+	poller := NewPoller(Options{Store: store, Profiles: profiles, Posts: posts, Discord: sender})
+	if err := poller.CheckOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ref := profiles.media[0].Ref
+	before, _, err := store.GetAny(ctx, ref)
+	if err != nil || before == nil {
+		t.Fatalf("seeded post = %v, %v", before, err)
+	}
+	profiles.err = instagram.ProfileFetchError{Kind: instagram.FetchErrorBlocked, Message: "instagram profile fetch blocked: HTTP 401 unauthorized"}
+	if err := poller.CheckOnce(ctx); err == nil {
+		t.Fatal("failed profile fetch reported success")
+	}
+	settings, err := store.GetAutomationSettings(ctx)
+	if err != nil || settings.LastError != profiles.err.Error() {
+		t.Fatalf("failure state = %v, %v", settings, err)
+	}
+	if err := poller.CheckOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if profiles.calls != 2 || len(posts.calls) != 1 || len(sender.messages) != 0 {
+		t.Fatalf("calls: profiles=%d posts=%d sends=%d", profiles.calls, len(posts.calls), len(sender.messages))
+	}
+	after, _, err := store.GetAny(ctx, ref)
+	if err != nil || after == nil || after.Caption != before.Caption || !after.FetchedAt.Equal(before.FetchedAt) {
+		t.Fatalf("cached post changed: %v, %v", after, err)
+	}
+	if count, err := store.InstagramSeenCount(ctx, "loonletwow"); err != nil || count != 1 {
+		t.Fatalf("seen count = %d, %v", count, err)
+	}
+	if _, cooling := profileFetchCoolingDown(settings, settings.LastCheckedAt.Add(30*time.Minute)); !cooling {
+		t.Fatal("blocked fetch retried at the normal polling interval")
+	}
+	if _, cooling := profileFetchCoolingDown(settings, settings.LastCheckedAt.Add(2*time.Hour)); cooling {
+		t.Fatal("cooldown did not expire after two hours")
+	}
+	// Once the persisted cooldown expires, a real successful response clears
+	// the failure without delivering or recaching already-seen fresh media.
+	if err := store.UpdateAutomationRun(ctx, now.Add(-121*time.Minute), time.Time{}, settings.LastStatus, settings.LastError); err != nil {
+		t.Fatal(err)
+	}
+	profiles.err = nil
+	if err := poller.CheckOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	settings, err = store.GetAutomationSettings(ctx)
+	if err != nil || settings.LastError != "" || profiles.calls != 3 || len(posts.calls) != 1 || len(sender.messages) != 0 {
+		t.Fatalf("recovery state = %v, %v; calls=%d posts=%d sends=%d", settings, err, profiles.calls, len(posts.calls), len(sender.messages))
+	}
 }
 
 type fakePostFetcher struct {
