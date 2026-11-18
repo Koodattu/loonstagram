@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+# syntax=docker/dockerfile:1.29.0@sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183
 
-FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine3.24@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS build-base
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS build-base
 WORKDIR /src
 ENV CGO_ENABLED=0 \
     GOTOOLCHAIN=local
@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
   GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -buildvcs=false \
   -trimpath -ldflags="-s -w" -o /out/Loonstagram ./cmd/Loonstagram
 
-FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
+FROM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS runtime
 RUN addgroup -S -g 10001 appuser \
   && adduser -S -D -H -u 10001 -G appuser appuser \
   && mkdir -p /data \

@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 
   nginx:
-    image: nginx:1.30.4-alpine3.24@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46
+    image: nginx:1.30.6-alpine3.24@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
     volumes:
       - ./nginx.local.conf:/etc/nginx/nginx.conf:ro
     ports:
